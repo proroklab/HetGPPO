@@ -1,7 +1,6 @@
 import os
 
 import pandas as pd
-from matplotlib import pyplot as plt
 
 
 def get_robot_columns(index: int):
@@ -62,9 +61,9 @@ def load_and_process_csv2(file: str):
     df = df.set_index(time)
 
     # Compute completion based on distance to goal
-    df["completion"] = (df["/robomaster_1/current_state/state_vector.1"] - 2).abs() + (
-        df["/robomaster_2/current_state/state_vector.1"] + 2
-    ).abs()
+    df["completion"] = (df["/robomaster_1/current_state/state_vector.1"] - 2).clip(
+        None, 0
+    ).abs() + (df["/robomaster_2/current_state/state_vector.1"] + 2).clip(0, None).abs()
     df["completion"] /= -8
     df["completion"] += 1
 
@@ -78,25 +77,23 @@ def load_and_process_csv2(file: str):
     #         "/robomaster_2/current_state/state_vector.1",
     #     ]
     # ].plot()
-    df[["completion"]].plot()
-    plt.show()
+    # df[["completion"]].plot()
+    # plt.show()
 
     # df.to_csv(os.path.dirname(os.path.realpath(__file__)) + "/ground_run_processed.csv")
 
     return df
 
 
-def success_from_x_position(x1, x2):
-    distance_from_goal1 = abs(x1 - 2)
-    distance_from_goal2 = abs(2 + x2)
-    distance = distance_from_goal1 + distance_from_goal2  # 0 to 8
-    distance /= -8
-    distance += 1
-    return distance
+def plot_completions(dfs_het, dfs_homo):
+    pass
 
 
 if __name__ == "__main__":
     dfs = []
     for i in range(1, 11):
-        file = os.path.dirname(os.path.realpath(__file__)) + f"/het/output_het_{i}.csv"
+        file = (
+            os.path.dirname(os.path.realpath(__file__))
+            + f"/data/het/output_het_{i}.csv"
+        )
         dfs.append(load_and_process_csv2(file))
