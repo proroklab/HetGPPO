@@ -1,0 +1,8 @@
+launch:
+
+- group:
+   
+  - executable:
+      cmd:              "python3 ./ros2_vmas_2_robots.py --a_range 1 --v_range 0.5 --model_name het_model_a_range_1_u_range_0_5_[3_2_0_002]_0_05_dt_0_1_friction_2_dt_delay.pt"
+      output:           "screen"
+      shell:            "true"

@@ -7,7 +7,6 @@ from typing import Union
 
 import numpy as np
 import ray
-import torch
 import vmas
 import wandb
 from ray.rllib import RolloutWorker, BaseEnv, Policy, VectorEnv
@@ -18,8 +17,7 @@ from ray.rllib.utils.typing import PolicyID
 from ray.tune import register_env
 from vmas import make_env
 
-from evaluate.evaluate_model import compute_action_corridor
-from models.gppo import GPPO
+from models.gippo import GIPPOv2
 from rllib_differentiable_comms.multi_action_dist import (
     TorchHomogeneousMultiActionDistribution,
 )
@@ -67,7 +65,8 @@ class TrainingUtils:
             )
             print("Ray init!")
         register_env(scenario_name, lambda config: TrainingUtils.env_creator(config))
-        ModelCatalog.register_custom_model("GPPO", GPPO)
+        ModelCatalog.register_custom_model("GPPO", GIPPOv2)
+        ModelCatalog.register_custom_model("GIPPO", GIPPOv2)
         ModelCatalog.register_custom_action_dist(
             "hom_multi_action", TorchHomogeneousMultiActionDistribution
         )
@@ -260,16 +259,19 @@ class EvaluationUtils:
         get_obs: bool,
         get_actions: bool,
         trainer: MultiPPOTrainer,
+        action_callback,
         env: VectorEnv,
         inject: bool,
         inject_mode: InjectMode,
         agents_to_inject: Set,
         noise_delta: float,
-        het: bool,
     ):
-        # print(
-        #     f"\nLoaded: {EvaluationUtils.get_model_name(trainer.config)[0]}, {EvaluationUtils.get_model_name(trainer.config)[2]}"
-        # )
+        assert (trainer is None) != (action_callback is None)
+
+        if trainer is not None:
+            print(
+                f"\nLoaded: {EvaluationUtils.get_model_name(trainer.config)[0]}, {EvaluationUtils.get_model_name(trainer.config)[2]}"
+            )
         if inject:
             print(
                 f"Injected: {EvaluationUtils.get_inject_name(inject_mode=inject_mode, agents_to_inject=agents_to_inject, noise_delta=noise_delta)[0]}"
@@ -307,11 +309,6 @@ class EvaluationUtils:
         #         actions if get_actions else None,
         #     )
 
-        model = torch.load(
-            f"/Users/Matteo/Downloads/{'het_' if het else ''}a_range_1_u_range_0_5_[3_2_0_002]_0_05_dt_0_1_friction_0_dt_delay_option_0.pt"
-        )
-        model.eval()
-
         best_reward = float("-inf")
         best_gif = None
         rewards = []
@@ -333,26 +330,11 @@ class EvaluationUtils:
                     observation = inject_function(observation)
                 if get_obs:
                     observations_this_episode.append(observation)
-                # if 150 < i < 200:
-                #     observation[0][2] = -observation[0][2]
-                #     observation[1][2] = -observation[1][2]
-                #     print("it happenmed")
-                action = compute_action_corridor(
-                    pos0_x=observation[0][0],
-                    pos0_y=observation[0][1],
-                    vel0_x=observation[0][2],
-                    vel0_y=observation[0][3],
-                    pos1_x=observation[1][0],
-                    pos1_y=observation[1][1],
-                    vel1_x=observation[1][2],
-                    vel1_y=observation[1][3],
-                    model=model,
-                    u_range=0.5,
-                )
-                # print(action)
-                # action = trainer.compute_single_action(observation)
-                #
-                # print(action)
+
+                if trainer is not None:
+                    action = trainer.compute_single_action(observation)
+                else:
+                    action = action_callback(observation)
 
                 if inject and inject_mode.is_action():
                     action = inject_function(action)

@@ -1,0 +1,12 @@
+launch:
+
+- arg: { name: "tf_myframe",      default: "robomaster_-1" }
+
+- group:
+  - include:
+      file: "../../Freyja/freyja_robomaster.launch.yaml"
+      arg:
+      - { name: "tf_myframe",         value: "$(var tf_myframe)" }
+      - { name: "controller_type",    value: "vel-only" }
+      - { name: "flatness_ff",        value: "true" }
+      - { name: "accels_as_limits",   value: "true" }

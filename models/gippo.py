@@ -352,7 +352,7 @@ class GNN(nn.Module):
         self.gnn.reset_parameters()
 
 
-class GPPOBranch(nn.Module):
+class GIPPOBranch(nn.Module):
     def __init__(
         self,
         in_features,
@@ -591,7 +591,7 @@ class GPPOBranch(nn.Module):
         return out, (out2 if self.double_output else None)
 
 
-class GPPO(TorchModelV2, nn.Module):
+class GIPPOv2(TorchModelV2, nn.Module):
     def __init__(self, obs_space, action_space, num_outputs, model_config, name, **cfg):
         TorchModelV2.__init__(
             self, obs_space, action_space, num_outputs, model_config, name
@@ -657,7 +657,7 @@ class GPPO(TorchModelV2, nn.Module):
             )
 
         if not self.share_action_value:
-            self.gnn = GPPOBranch(
+            self.gnn = GIPPOBranch(
                 in_features=self.obs_shape,
                 out_features=self.outputs_per_agent,
                 double_output=False,
@@ -669,7 +669,7 @@ class GPPO(TorchModelV2, nn.Module):
                 comm_radius=self.comm_radius,
                 **cfg,
             )
-            self.gnn_value = GPPOBranch(
+            self.gnn_value = GIPPOBranch(
                 in_features=self.obs_shape,
                 out_features=1,
                 double_output=False,
@@ -682,7 +682,7 @@ class GPPO(TorchModelV2, nn.Module):
                 **cfg,
             )
         else:
-            self.gnn = GPPOBranch(
+            self.gnn = GIPPOBranch(
                 in_features=self.obs_shape,
                 out_features=self.outputs_per_agent,
                 double_output=True,
