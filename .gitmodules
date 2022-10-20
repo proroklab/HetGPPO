@@ -1,0 +1,3 @@
+[submodule "rllib_differentiable_comms"]
+	path = rllib_differentiable_comms
+	url = git@github.com:proroklab/rllib_differentiable_comms.git
