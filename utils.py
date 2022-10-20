@@ -10,7 +10,6 @@ import ray
 import torch
 import vmas
 import wandb
-from models.gippo_small import GIPPOv2Small
 from ray.rllib import RolloutWorker, BaseEnv, Policy, VectorEnv
 from ray.rllib.agents import DefaultCallbacks
 from ray.rllib.evaluation import Episode
@@ -19,83 +18,12 @@ from ray.rllib.utils.typing import PolicyID
 from ray.tune import register_env
 from vmas import make_env
 
-from evaluate.evaluate_model import clamp_with_norm
-from models.gippo import GIPPOv2
+from evaluate.evaluate_model import compute_action_corridor
+from models.gppo import GPPO
 from rllib_differentiable_comms.multi_action_dist import (
     TorchHomogeneousMultiActionDistribution,
 )
 from rllib_differentiable_comms.multi_trainer import MultiPPOTrainer
-
-
-class TorchDiagGaussian:
-    """Wrapper class for PyTorch Normal distribution."""
-
-    def __init__(
-        self,
-        inputs,
-        u_range,
-    ):
-        self.inputs = inputs
-        mean, log_std = torch.chunk(self.inputs, 2, dim=1)
-        self.dist = torch.distributions.normal.Normal(mean, torch.exp(log_std))
-        self.u_range = u_range
-
-    def sample(self):
-        sample = self.dist.sample()
-        return self._squash(sample)
-
-    def deterministic_sample(self):
-        sample = self.dist.mean
-        return self._squash(sample)
-
-    def _squash(self, sample):
-        sample = -self.u_range + (sample + 1.0) * (2 * self.u_range) / 2.0
-        return sample.clamp(-self.u_range, self.u_range)
-
-
-def compute_action_corridor(
-    pos0_x: float,
-    pos0_y: float,
-    vel0_x: float,
-    vel0_y: float,
-    pos1_x: float,
-    pos1_y: float,
-    vel1_x: float,
-    vel1_y: float,
-    model,
-    u_range: float,
-    n_agents: int = 2,
-    obs_size: int = 4,
-    num_actions_per_agent: int = 2,
-    deterministic: bool = False,
-    circular_action_constraint: bool = True,
-):
-    observation = torch.zeros((1, n_agents, obs_size))
-    agent_input = [[vel0_x, vel0_y, pos0_x, pos0_y], [vel1_x, vel1_y, pos1_x, pos1_y]]
-    for j in range(n_agents):
-        for i, val in enumerate(agent_input[j]):
-            observation[:, j, i] = float(val)
-    pos = observation[..., 2:]
-    vel = observation[..., :2]
-    logits = model(observation, pos, vel)[0].detach()[0]
-
-    input_lens = [2 * num_actions_per_agent] * n_agents
-
-    logits = logits.view(1, -1)
-    split_inputs = torch.split(logits, input_lens, dim=1)
-    action_dists = []
-    for agent_inputs in split_inputs:
-        action_dists.append(TorchDiagGaussian(agent_inputs, u_range))
-    actions = []
-    for action_dist in action_dists:
-        if deterministic:
-            action = action_dist.deterministic_sample()[0]
-        else:
-            action = action_dist.sample()[0]
-        if circular_action_constraint:
-            action = clamp_with_norm(action, u_range)
-        actions.append(action.tolist())
-    return actions
 
 
 class PathUtils:
@@ -104,8 +32,8 @@ class PathUtils:
         if platform.system() == "Darwin"
         else Path("/local/scratch/mb2389/")
     )
-    gippo_dir = Path(__file__).parent.resolve()
-    result_dir = gippo_dir / "results"
+    gppo_dir = Path(__file__).parent.resolve()
+    result_dir = gppo_dir / "results"
     rollout_storage = result_dir / "rollout_storage"
 
 
@@ -139,8 +67,7 @@ class TrainingUtils:
             )
             print("Ray init!")
         register_env(scenario_name, lambda config: TrainingUtils.env_creator(config))
-        ModelCatalog.register_custom_model("GIPPO", GIPPOv2)
-        ModelCatalog.register_custom_model("GIPPOSmall", GIPPOv2Small)
+        ModelCatalog.register_custom_model("GPPO", GPPO)
         ModelCatalog.register_custom_action_dist(
             "hom_multi_action", TorchHomogeneousMultiActionDistribution
         )
@@ -217,7 +144,9 @@ class TrainingUtils:
             **kwargs,
         ) -> None:
             vid = np.transpose(self.frames, (0, 3, 1, 2))
-            episode.media["rendering"] = wandb.Video(vid, fps=30, format="mp4")
+            episode.media["rendering"] = wandb.Video(
+                vid, fps=1 / base_env.vector_env.env.world.dt, format="mp4"
+            )
             self.frames = []
 
 
