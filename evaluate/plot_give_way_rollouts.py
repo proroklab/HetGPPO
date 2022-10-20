@@ -6,6 +6,7 @@ import tikzplotlib
 import torch
 from matplotlib import pyplot as plt
 
+from evaluate.evaluate_model import compute_action_corridor
 from utils import InjectMode, EvaluationUtils
 
 
@@ -27,18 +28,38 @@ def get_distance(
 
     inject = agents_to_inject is not None and len(agents_to_inject) > 0
 
+    def action_callback(observation):
+        model = torch.load(
+            f"/Users/Matteo/Downloads/{'het_' if het else ''}a_range_1_u_range_0_5_[3_2_0_002]_0_05_dt_0_1_friction_0_dt_delay_option_0.pt"
+        )
+        model.eval()
+
+        action = compute_action_corridor(
+            pos0_x=observation[0][0],
+            pos0_y=observation[0][1],
+            vel0_x=observation[0][2],
+            vel0_y=observation[0][3],
+            pos1_x=observation[1][0],
+            pos1_y=observation[1][1],
+            vel1_x=observation[1][2],
+            vel1_y=observation[1][3],
+            model=model,
+            u_range=0.5,
+        )
+        return action
+
     rewards, _, obs, actions = EvaluationUtils.rollout_episodes(
         n_episodes=n_episodes,
         render=False,
         get_obs=True,
         get_actions=True,
-        trainer=trainer,
+        trainer=None,
+        action_callback=action_callback,
         env=env,
         inject=inject,
         inject_mode=inject_mode,
         agents_to_inject=agents_to_inject,
         noise_delta=noise_delta,
-        het=het,
     )
 
     obs = torch.tensor(np.array(obs))
@@ -129,7 +150,7 @@ def plot_distances(het_distance, homo_distance):
 
 if __name__ == "__main__":
 
-    checkpoint_path = "/Users/Matteo/Downloads/MultiPPOTrainer_give_way_deploy_72a9b_00000_0_2022-10-18_11-13-01/checkpoint_000212/checkpoint-212"
+    checkpoint_path = "/Users/Matteo/Downloads/MultiPPOTrainer_give_way_deploy_72a9b_00000_0_2022-10-18_11-13-01/checkpoint_001294/checkpoint-1294"
     n_episodes = 10
 
     het_distance = get_distance(checkpoint_path, n_episodes=n_episodes, het=True)
