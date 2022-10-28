@@ -28,8 +28,8 @@ class CurriculumReward(DefaultCallbacks):
         def set_passage_penalty(env):
             env.scenario.passage_collision_penalty = -0.1
 
-        def set_obstacle_penalty(env):
-            env.scenario.obstacle_collision_penalty = -0.03
+        # def set_obstacle_penalty(env):
+        #     env.scenario.obstacle_collision_penalty = -0.03
 
         try:
             if result["custom_metrics"]["blue agent/pos_rew_mean"] > 8:
@@ -39,10 +39,10 @@ class CurriculumReward(DefaultCallbacks):
         except KeyError:
             pass
 
-        if result["training_iteration"] > 500:
-            trainer.workers.foreach_worker(
-                lambda ev: ev.foreach_env(lambda env: set_obstacle_penalty(env))
-            )
+        # if result["training_iteration"] > 500:
+        #     trainer.workers.foreach_worker(
+        #         lambda ev: ev.foreach_env(lambda env: set_obstacle_penalty(env))
+        #     )
 
 
 def train(
