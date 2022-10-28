@@ -121,16 +121,26 @@ def plot_distances(het_distance, homo_distance):
     ]
 
     for i, episode_obs in enumerate(het_distance):
+        completion = np.array(episode_obs)
+        max_completion_index = np.argmax(completion) + 1
+
+        completion = completion[:max_completion_index]
+
         ax.plot(
-            np.linspace(0, len(episode_obs) * 0.05, len(episode_obs)),
-            episode_obs,
+            np.linspace(0, max_completion_index * 0.05, max_completion_index),
+            completion,
             label="HetGPPO" if i == 0 else None,
             color=CB_color_cycle[0],
         )
     for i, episode_obs in enumerate(homo_distance):
+        completion = np.array(episode_obs)
+        max_completion_index = np.argmax(completion) + 1
+
+        completion = completion[:max_completion_index]
+
         ax.plot(
-            np.linspace(0, len(episode_obs) * 0.05, len(episode_obs)),
-            episode_obs,
+            np.linspace(0, max_completion_index * 0.05, max_completion_index),
+            completion,
             label="GPPO" if i == 0 else None,
             color=CB_color_cycle[1],
         )
