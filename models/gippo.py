@@ -121,7 +121,6 @@ def batch_from_rllib_to_ptg(
 ) -> torch_geometric.data.Batch:
     batch_size = x.shape[0]
     n_agents = x.shape[1]
-    n_edges = edge_index.shape[1]
 
     x = x.view(-1, x.shape[-1])
     if pos is not None:
@@ -144,6 +143,7 @@ def batch_from_rllib_to_ptg(
     graphs.edge_attr = None
 
     if edge_index is not None:
+        n_edges = edge_index.shape[1]
         # Tensor of shape [batch_size * n_edges]
         # in which edges corresponding to the same graph have the same index.
         batch = torch.repeat_interleave(b, n_edges)
@@ -363,7 +363,7 @@ class GIPPOBranch(nn.Module):
         n_agents,
         centralised,
         edge_index,
-        comm_radius,
+        comm_radius_processed,
         **cfg,
     ):
         super().__init__()
@@ -380,7 +380,7 @@ class GIPPOBranch(nn.Module):
         self.double_output = double_output
         self.centralised = centralised
         self.edge_index = edge_index
-        self.comm_radius = comm_radius
+        self.comm_radius = comm_radius_processed
 
         self.node_embedding = 64
         self.edge_embedding = 32
@@ -618,9 +618,9 @@ class GIPPOv2(TorchModelV2, nn.Module):
         self.add_agent_index = cfg["add_agent_index"]
 
         self.topology_type = cfg.get("topology_type", None)
-        self.comm_radius = cfg.get("comm_radius", -1)
+        self.comm_radius_processed = cfg.get("comm_radius", -1)
 
-        assert self.topology_type in topology_types or self.comm_radius > 0
+        assert self.topology_type in topology_types or self.comm_radius_processed > 0
 
         if self.use_mlp:
             assert self.share_observations and self.centralised_critic
@@ -649,7 +649,7 @@ class GIPPOv2(TorchModelV2, nn.Module):
             self.edge_index = torch.empty(2, self.n_agents).long()
             for i in range(self.n_agents):
                 self.edge_index[:, i] = torch.Tensor([i, i])
-            self.comm_radius = -1
+            self.comm_radius_processed = -1
 
         if self.edge_index is not None:
             self.edge_index, _ = torch_geometric.utils.remove_self_loops(
@@ -666,7 +666,7 @@ class GIPPOv2(TorchModelV2, nn.Module):
                 n_agents=self.n_agents,
                 centralised=self.use_mlp,
                 edge_index=self.edge_index,
-                comm_radius=self.comm_radius,
+                comm_radius_processed=self.comm_radius_processed,
                 **cfg,
             )
             self.gnn_value = GIPPOBranch(
@@ -678,7 +678,7 @@ class GIPPOv2(TorchModelV2, nn.Module):
                 n_agents=self.n_agents,
                 centralised=self.use_mlp or self.centralised_critic,
                 edge_index=self.edge_index,
-                comm_radius=self.comm_radius,
+                comm_radius_processed=self.comm_radius_processed,
                 **cfg,
             )
         else:
@@ -691,7 +691,7 @@ class GIPPOv2(TorchModelV2, nn.Module):
                 n_agents=self.n_agents,
                 centralised=self.use_mlp,
                 edge_index=self.edge_index,
-                comm_radius=self.comm_radius,
+                comm_radius_processed=self.comm_radius_processed,
                 **cfg,
             )
 
