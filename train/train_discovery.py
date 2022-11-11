@@ -2,7 +2,7 @@ import os
 import pickle
 
 from ray import tune
-from ray.rllib.agents import MultiCallbacks
+from ray.rllib.agents import MultiCallbacks, DefaultCallbacks
 from ray.rllib.models import MODEL_DEFAULTS
 from ray.tune.integration.wandb import WandbLoggerCallback
 
@@ -13,7 +13,7 @@ ON_MAC = False
 
 train_batch_size = 60000 if not ON_MAC else 200  # Jan 32768
 num_workers = 5 if not ON_MAC else 0  # jan 4
-num_envs_per_worker = 50 if not ON_MAC else 1  # Jan 32
+num_envs_per_worker = 40 if not ON_MAC else 1  # Jan 32
 rollout_fragment_length = (
     train_batch_size
     if ON_MAC
@@ -21,6 +21,32 @@ rollout_fragment_length = (
 )
 scenario_name = "discovery"
 model_name = "GIPPO"
+n_targets = 7
+
+
+class CurriculumReward(DefaultCallbacks):
+    def on_train_result(self, trainer, result, **kwargs):
+        def decrease_n_targets(env):
+            env.scenario.n_targets -= 1
+
+        # try:
+        #     if (
+        #         result["custom_metrics"]["agent 0/all_targets_covered_mean"]
+        #         > n_targets / 5
+        #     ):
+        #         trainer.workers.foreach_worker(
+        #             lambda ev: ev.foreach_env(lambda env: set_n_targets(env))
+        #         )
+        # except KeyError:
+        #     pass
+
+        if (result["training_iteration"] + 1) % 100 == 0:
+            trainer.workers.foreach_worker(
+                lambda ev: ev.foreach_env(lambda env: decrease_n_targets(env))
+            )
+            trainer.evaluation_workers.foreach_worker(
+                lambda ev: ev.foreach_env(lambda env: decrease_n_targets(env))
+            )
 
 
 def train(
@@ -32,6 +58,7 @@ def train(
     use_mlp,
     aggr,
     topology_type,
+    comm_range,
     add_agent_index,
     continuous_actions,
     seed,
@@ -66,7 +93,7 @@ def train(
         MultiPPOTrainer,
         name=group_name if model_name == "GIPPO" else model_name,
         checkpoint_freq=1,
-        keep_checkpoints_num=2,
+        keep_checkpoints_num=0,
         max_failures=0,
         checkpoint_at_end=True,
         checkpoint_score_attr="episode_reward_mean",
@@ -115,8 +142,8 @@ def train(
                     "heterogeneous": heterogeneous,
                     "use_beta": False,
                     "aggr": aggr,
-                    "topology_type": None,
-                    "comm_radius": 0.3,
+                    "topology_type": topology_type,
+                    "comm_radius": comm_range,
                     "use_mlp": use_mlp,
                     "add_agent_index": add_agent_index,
                     "pos_start": 0,
@@ -137,15 +164,18 @@ def train(
                 # Env specific
                 "scenario_config": {
                     "n_agents": 5,
-                    "n_targets": 4,
+                    "n_targets": n_targets,
                     "agents_per_target": 2,
-                    "lidar_range": 0.3,
-                    "covering_range": 0.3,
+                    "lidar_range": comm_range,
+                    "covering_range": 0.25,
                     "agent_collision_penalty": 0,
                     "covering_rew_coeff": 1,
+                    "targets_respawn": True,
+                    "time_penalty": 0,
+                    "shared_reward": False,
                 },
             },
-            "evaluation_interval": 10,
+            "evaluation_interval": 1,
             "evaluation_duration": 1,
             "evaluation_num_workers": 1,
             "evaluation_parallel_to_training": True,
@@ -154,17 +184,10 @@ def train(
                 "env_config": {
                     "num_envs": 1,
                 },
-                "callbacks": MultiCallbacks(
-                    [
-                        TrainingUtils.RenderingCallbacks,
-                        TrainingUtils.EvaluationCallbacks,
-                    ]
-                ),
+                "callbacks": MultiCallbacks([TrainingUtils.RenderingCallbacks]),
             },
             "callbacks": MultiCallbacks(
-                [
-                    TrainingUtils.EvaluationCallbacks,
-                ]
+                [TrainingUtils.EvaluationCallbacks, CurriculumReward]
             ),
         }
         if not restore
@@ -178,16 +201,17 @@ if __name__ == "__main__":
     train(
         seed=2,
         restore=False,
-        notes="",
+        notes="curriculum every 100 -1 target",
         # Model important
-        share_observations=False,
+        share_observations=True,
         heterogeneous=False,
         # Other model
         centralised_critic=False,
         use_mlp=False,
         add_agent_index=False,
         aggr="add",
-        topology_type="full",
+        topology_type=None,
+        comm_range=0.35,
         # Env
         max_episode_steps=300,
         continuous_actions=True,
