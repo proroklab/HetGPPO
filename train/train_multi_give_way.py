@@ -2,9 +2,9 @@ import os
 import pickle
 
 from ray import tune
-from ray.rllib.agents import MultiCallbacks
+from ray.air.callbacks.wandb import WandbLoggerCallback
+from ray.rllib.algorithms.callbacks import MultiCallbacks
 from ray.rllib.models import MODEL_DEFAULTS
-from ray.tune.integration.wandb import WandbLoggerCallback
 
 from rllib_differentiable_comms.multi_trainer import MultiPPOTrainer
 from utils import PathUtils, TrainingUtils
@@ -66,11 +66,6 @@ def train(
     tune.run(
         MultiPPOTrainer,
         name=group_name if model_name.startswith("GIPPO") else model_name,
-        checkpoint_freq=1,
-        keep_checkpoints_num=0,
-        max_failures=0,
-        checkpoint_at_end=True,
-        checkpoint_score_attr="episode_reward_mean",
         callbacks=[
             WandbLoggerCallback(
                 project=f"{scenario_name}{'_test' if ON_MAC else ''}",
@@ -92,7 +87,7 @@ def train(
             "clip_param": 0.2,  # 0.3
             "vf_loss_coeff": 1,  # Jan 0.001
             "vf_clip_param": float("inf"),
-            "entropy_coeff": 0,  # 0.01,
+            "entropy_coeff": 0.01,  # 0.01,
             "train_batch_size": train_batch_size,
             "rollout_fragment_length": rollout_fragment_length,
             "sgd_minibatch_size": 4096 if not ON_MAC else 100,  # jan 2048
@@ -146,9 +141,11 @@ def train(
                     "pos_shaping_factor": 1,
                     "final_reward": 0.005,
                     "comm_range": comm_range,
+                    "shared_rew": False,
+                    "agent_collision_penalty": -0.1,
                 },
             },
-            "evaluation_interval": 50,
+            "evaluation_interval": 20,
             "evaluation_duration": 1,
             "evaluation_num_workers": 1,
             "evaluation_parallel_to_training": True,
@@ -173,22 +170,22 @@ def train(
 if __name__ == "__main__":
     TrainingUtils.init_ray(scenario_name=scenario_name, local_mode=ON_MAC)
 
-    for seed in [0]:
+    for seed in [2]:
         train(
             seed=seed,
             restore=False,
             notes="",
             # Model important
-            share_observations=False,
+            share_observations=True,
             heterogeneous=False,
             # Other model
             centralised_critic=False,
             use_mlp=False,
-            add_agent_index=False,
+            add_agent_index=True,
             aggr="add",
             topology_type=None,
-            comm_range=1.5,
+            comm_range=5,
             # Env
-            max_episode_steps=300,
+            max_episode_steps=200,
             continuous_actions=True,
         )

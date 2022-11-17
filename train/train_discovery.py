@@ -2,7 +2,7 @@ import os
 import pickle
 
 from ray import tune
-from ray.rllib.agents import MultiCallbacks, DefaultCallbacks
+from ray.rllib.algorithms.callbacks import MultiCallbacks, DefaultCallbacks
 from ray.rllib.models import MODEL_DEFAULTS
 from ray.tune.integration.wandb import WandbLoggerCallback
 
@@ -92,11 +92,6 @@ def train(
     tune.run(
         MultiPPOTrainer,
         name=group_name if model_name == "GIPPO" else model_name,
-        checkpoint_freq=1,
-        keep_checkpoints_num=0,
-        max_failures=0,
-        checkpoint_at_end=True,
-        checkpoint_score_attr="episode_reward_mean",
         callbacks=[
             WandbLoggerCallback(
                 project=f"{scenario_name}{'_test' if ON_MAC else ''}",
