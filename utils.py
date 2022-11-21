@@ -10,7 +10,7 @@ import ray
 import vmas
 import wandb
 from ray.rllib import RolloutWorker, BaseEnv, Policy, VectorEnv
-from ray.rllib.algorithms.callbacks import DefaultCallbacks
+from ray.rllib.agents.callbacks import DefaultCallbacks
 from ray.rllib.evaluation import Episode
 from ray.rllib.models import ModelCatalog
 from ray.rllib.utils.typing import PolicyID
