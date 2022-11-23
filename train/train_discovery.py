@@ -9,7 +9,7 @@ from ray.tune.integration.wandb import WandbLoggerCallback
 from rllib_differentiable_comms.multi_trainer import MultiPPOTrainer
 from utils import PathUtils, TrainingUtils
 
-ON_MAC = False
+ON_MAC = True
 
 train_batch_size = 60000 if not ON_MAC else 200  # Jan 32768
 num_workers = 5 if not ON_MAC else 0  # jan 4
@@ -20,12 +20,12 @@ rollout_fragment_length = (
     else train_batch_size // (num_workers * num_envs_per_worker)
 )
 scenario_name = "discovery"
-model_name = "GIPPO"
+model_name = "GPPO"
 n_targets = 7
 
 
 class CurriculumReward(DefaultCallbacks):
-    def on_train_result(self, trainer, result, **kwargs):
+    def on_train_result(self, algorithm, result, **kwargs):
         def decrease_n_targets(env):
             env.scenario.n_targets -= 1
 
@@ -41,10 +41,10 @@ class CurriculumReward(DefaultCallbacks):
         #     pass
 
         if (result["training_iteration"] + 1) % 100 == 0:
-            trainer.workers.foreach_worker(
+            algorithm.workers.foreach_worker(
                 lambda ev: ev.foreach_env(lambda env: decrease_n_targets(env))
             )
-            trainer.evaluation_workers.foreach_worker(
+            algorithm.evaluation_workers.foreach_worker(
                 lambda ev: ev.foreach_env(lambda env: decrease_n_targets(env))
             )
 
@@ -79,7 +79,7 @@ def train(
     elif use_mlp:
         group_name = "CPPO"
     elif share_observations:
-        group_name = "GIPPO"
+        group_name = "GPPO"
     else:
         group_name = "IPPO"
 
@@ -91,7 +91,7 @@ def train(
 
     tune.run(
         MultiPPOTrainer,
-        name=group_name if model_name == "GIPPO" else model_name,
+        name=group_name if model_name == "GPPO" else model_name,
         callbacks=[
             WandbLoggerCallback(
                 project=f"{scenario_name}{'_test' if ON_MAC else ''}",
@@ -147,7 +147,7 @@ def train(
                     "vel_dim": 2,
                     "share_action_value": True,
                 }
-                if model_name == "GIPPO"
+                if model_name == "GPPO"
                 else fcnet_model_config,
             },
             "env_config": {

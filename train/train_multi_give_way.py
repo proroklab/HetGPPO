@@ -20,7 +20,7 @@ rollout_fragment_length = (
     else train_batch_size // (num_workers * num_envs_per_worker)
 )
 scenario_name = "multi_give_way"
-model_name = "GIPPO"
+model_name = "GPPO"
 
 
 def train(
@@ -53,7 +53,7 @@ def train(
     elif use_mlp:
         group_name = "CPPO"
     elif share_observations:
-        group_name = "GIPPO"
+        group_name = "GPPO"
     else:
         group_name = "IPPO"
 
@@ -65,7 +65,7 @@ def train(
 
     tune.run(
         MultiPPOTrainer,
-        name=group_name if model_name.startswith("GIPPO") else model_name,
+        name=group_name if model_name.startswith("GPPO") else model_name,
         callbacks=[
             WandbLoggerCallback(
                 project=f"{scenario_name}{'_test' if ON_MAC else ''}",
@@ -121,7 +121,7 @@ def train(
                     "vel_dim": 2,
                     "share_action_value": True,
                 }
-                if model_name == "GIPPO"
+                if model_name == "GPPO"
                 else fcnet_model_config,
             },
             "env_config": {
