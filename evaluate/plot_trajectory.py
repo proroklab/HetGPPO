@@ -1,3 +1,7 @@
+#  Copyright (c) 2022.
+#  ProrokLab (https://www.proroklab.org/)
+#  All rights reserved.
+
 from pathlib import Path
 from typing import Set, Union
 
