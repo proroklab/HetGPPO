@@ -15,9 +15,9 @@ from utils import PathUtils, TrainingUtils
 
 ON_MAC = False
 
-train_batch_size = 30000 if not ON_MAC else 200  # Jan 32768
+train_batch_size = 60000 if not ON_MAC else 200  # Jan 32768
 num_workers = 4 if not ON_MAC else 0  # jan 4
-num_envs_per_worker = 50 if not ON_MAC else 1  # Jan 32
+num_envs_per_worker = 75 if not ON_MAC else 1  # Jan 32
 rollout_fragment_length = (
     train_batch_size
     if ON_MAC
@@ -71,7 +71,6 @@ def train(
         name=group_name if model_name.startswith("GPPO") else model_name,
         checkpoint_freq=1,
         keep_checkpoints_num=2,
-        max_failures=0,
         checkpoint_at_end=True,
         checkpoint_score_attr="episode_reward_mean",
         callbacks=[
@@ -107,7 +106,7 @@ def train(
             "gamma": 0.99,
             "use_gae": True,
             "use_critic": True,
-            "batch_mode": "truncate_episodes",
+            "batch_mode": "complete_episodes",
             "model": {
                 "custom_model": model_name,
                 "custom_action_dist": "hom_multi_action",
@@ -138,9 +137,9 @@ def train(
                 "continuous_actions": continuous_actions,
                 "max_steps": max_episode_steps,
                 # Env specific
-                "scenario_config": {"green_mass": 1},
+                "scenario_config": {"blue_mass": 2, "green_mass": 4, "mass_noise": 1},
             },
-            "evaluation_interval": 1,
+            "evaluation_interval": 50,
             "evaluation_duration": 1,
             "evaluation_num_workers": 1,
             "evaluation_parallel_to_training": True,
@@ -152,7 +151,6 @@ def train(
                 "callbacks": MultiCallbacks(
                     [
                         TrainingUtils.RenderingCallbacks,
-                        TrainingUtils.EvaluationCallbacks,
                     ]
                 ),
             },
@@ -171,12 +169,12 @@ if __name__ == "__main__":
     TrainingUtils.init_ray(scenario_name=scenario_name, local_mode=ON_MAC)
 
     train(
-        seed=0,
+        seed=1,
         restore=False,
         notes="",
         # Model important
         share_observations=True,
-        heterogeneous=True,
+        heterogeneous=False,
         # Other model
         centralised_critic=False,
         use_mlp=False,
