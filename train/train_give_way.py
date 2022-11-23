@@ -2,9 +2,9 @@ import os
 import pickle
 
 from ray import tune
-from ray.rllib.agents import MultiCallbacks
+from ray.air.callbacks.wandb import WandbLoggerCallback
+from ray.rllib.algorithms.callbacks import MultiCallbacks, DefaultCallbacks
 from ray.rllib.models import MODEL_DEFAULTS
-from ray.tune.integration.wandb import WandbLoggerCallback
 
 from rllib_differentiable_comms.multi_trainer import MultiPPOTrainer
 from utils import PathUtils, TrainingUtils
@@ -12,15 +12,37 @@ from utils import PathUtils, TrainingUtils
 ON_MAC = False
 
 train_batch_size = 30000 if not ON_MAC else 200  # Jan 32768
-num_workers = 4 if not ON_MAC else 0  # jan 4
-num_envs_per_worker = 50 if not ON_MAC else 1  # Jan 32
+num_workers = 5 if not ON_MAC else 0  # jan 4
+num_envs_per_worker = 32 if not ON_MAC else 1  # Jan 32
 rollout_fragment_length = (
     train_batch_size
     if ON_MAC
     else train_batch_size // (num_workers * num_envs_per_worker)
 )
 scenario_name = "give_way"
-model_name = "GIPPO"
+model_name = "GPPO"
+
+
+class CurriculumReward(DefaultCallbacks):
+    def on_train_result(self, algorithm, result, **kwargs):
+        def set_passage_penalty(env):
+            env.scenario.passage_collision_penalty = -0.1
+
+        # def set_obstacle_penalty(env):
+        #     env.scenario.obstacle_collision_penalty = -0.03
+
+        try:
+            if result["custom_metrics"]["blue agent/pos_rew_mean"] > 8:
+                algorithm.workers.foreach_worker(
+                    lambda ev: ev.foreach_env(lambda env: set_passage_penalty(env))
+                )
+        except KeyError:
+            pass
+
+        # if result["training_iteration"] > 500:
+        #     trainer.workers.foreach_worker(
+        #         lambda ev: ev.foreach_env(lambda env: set_obstacle_penalty(env))
+        #     )
 
 
 def train(
@@ -52,7 +74,7 @@ def train(
     elif use_mlp:
         group_name = "CPPO"
     elif share_observations:
-        group_name = "GIPPO"
+        group_name = "GPPO"
     else:
         group_name = "IPPO"
 
@@ -64,7 +86,7 @@ def train(
 
     tune.run(
         MultiPPOTrainer,
-        name=group_name if model_name.startswith("GIPPO") else model_name,
+        name=group_name if model_name.startswith("GPPO") else model_name,
         checkpoint_freq=1,
         keep_checkpoints_num=2,
         max_failures=0,
@@ -79,7 +101,7 @@ def train(
             )
         ],
         local_dir=str(PathUtils.scratch_dir / "ray_results" / scenario_name),
-        stop={"training_iteration": 300},
+        stop={"training_iteration": 5000},
         restore=str(checkpoint_path) if restore else None,
         config={
             "seed": seed,
@@ -95,7 +117,7 @@ def train(
             "train_batch_size": train_batch_size,
             "rollout_fragment_length": rollout_fragment_length,
             "sgd_minibatch_size": 2048 if not ON_MAC else 100,  # jan 2048
-            "num_sgd_iter": 25,  # Jan 30
+            "num_sgd_iter": 30,  # Jan 30
             "num_gpus": int(os.environ.get("RLLIB_NUM_GPUS", "0")),
             "num_workers": num_workers,
             "num_envs_per_worker": num_envs_per_worker,
@@ -124,7 +146,7 @@ def train(
                     "vel_dim": 2,
                     "share_action_value": True,
                 }
-                if model_name.startswith("GIPPO")
+                if model_name.startswith("GPPO")
                 else fcnet_model_config,
             },
             "env_config": {
@@ -134,9 +156,23 @@ def train(
                 "continuous_actions": continuous_actions,
                 "max_steps": max_episode_steps,
                 # Env specific
-                "scenario_config": {},
+                "scenario_config": {
+                    "u_range": 0.5,
+                    "a_range": 1,
+                    "obs_noise": 0.01,
+                    "dt_delay": 0,
+                    "linear_friction": 0.1,
+                    "min_input_norm": 0.08,
+                    "box_agents": False,
+                    "pos_shaping_factor": 1,
+                    "final_reward": 0.005,
+                    "agent_collision_penalty": -0.1,
+                    "obstacle_collision_penalty": 0,
+                    "passage_collision_penalty": 0,
+                    "energy_rew_coeff": 0,
+                },
             },
-            "evaluation_interval": 1,
+            "evaluation_interval": 50,
             "evaluation_duration": 1,
             "evaluation_num_workers": 1,
             "evaluation_parallel_to_training": True,
@@ -153,9 +189,7 @@ def train(
                 ),
             },
             "callbacks": MultiCallbacks(
-                [
-                    TrainingUtils.EvaluationCallbacks,
-                ]
+                [TrainingUtils.EvaluationCallbacks, CurriculumReward]
             ),
         }
         if not restore
@@ -170,10 +204,10 @@ if __name__ == "__main__":
         train(
             seed=seed,
             restore=False,
-            notes="longer scenario",
+            notes="",
             # Model important
             share_observations=True,
-            heterogeneous=True,
+            heterogeneous=False,
             # Other model
             centralised_critic=False,
             use_mlp=False,
@@ -181,6 +215,6 @@ if __name__ == "__main__":
             aggr="add",
             topology_type="full",
             # Env
-            max_episode_steps=200,
+            max_episode_steps=500,
             continuous_actions=True,
         )

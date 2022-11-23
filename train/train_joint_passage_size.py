@@ -2,9 +2,9 @@ import os
 import pickle
 
 from ray import tune
-from ray.rllib.agents import MultiCallbacks
+from ray.air.callbacks.wandb import WandbLoggerCallback
+from ray.rllib.algorithms.callbacks import MultiCallbacks
 from ray.rllib.models import MODEL_DEFAULTS
-from ray.tune.integration.wandb import WandbLoggerCallback
 
 from rllib_differentiable_comms.multi_trainer import MultiPPOTrainer
 from utils import PathUtils, TrainingUtils
@@ -19,8 +19,8 @@ rollout_fragment_length = (
     if ON_MAC
     else train_batch_size // (num_workers * num_envs_per_worker)
 )
-scenario_name = "joint"
-model_name = "GIPPO"
+scenario_name = "joint_passage_size"
+model_name = "GPPO"
 
 
 def train(
@@ -52,7 +52,7 @@ def train(
     elif use_mlp:
         group_name = "CPPO"
     elif share_observations:
-        group_name = "GIPPO"
+        group_name = "GPPO"
     else:
         group_name = "IPPO"
 
@@ -64,7 +64,7 @@ def train(
 
     tune.run(
         MultiPPOTrainer,
-        name=group_name if model_name == "GIPPO" else model_name,
+        name=group_name if model_name == "GPPO" else model_name,
         checkpoint_freq=1,
         keep_checkpoints_num=2,
         max_failures=0,
@@ -79,7 +79,7 @@ def train(
             )
         ],
         local_dir=str(PathUtils.scratch_dir / "ray_results" / scenario_name),
-        stop={"training_iteration": 1000},
+        stop={"training_iteration": 5000},
         restore=str(checkpoint_path) if restore else None,
         config={
             "seed": seed,
@@ -124,7 +124,7 @@ def train(
                     "vel_dim": 2,
                     "share_action_value": True,
                 }
-                if model_name == "GIPPO"
+                if model_name == "GPPO"
                 else fcnet_model_config,
             },
             "env_config": {
@@ -135,24 +135,20 @@ def train(
                 "max_steps": max_episode_steps,
                 # Env specific
                 "scenario_config": {
-                    "fixed_passage": True,
-                    "n_passages": 1,
-                    "random_start_angle": True,
-                    "random_goal_angle": True,
+                    "fixed_passage": False,
+                    "random_start_angle": False,
+                    "random_goal_angle": False,
                     "pos_shaping_factor": 1,
                     "rot_shaping_factor": 1,
-                    "collision_reward": 0,  # -0.06
+                    "collision_reward": -0.1,  # -0.06
                     "energy_reward_coeff": 0,
-                    "joint_length": 0.5,
                     "observe_joint_angle": False,
                     "joint_angle_obs_noise": 0.0,
-                    "asym_package": True,
-                    "mass_ratio": 5,
+                    "asym_package": False,
+                    "mass_ratio": 1,
                     "mass_position": 0.75,
                     "max_speed_1": None,  # 0.05
-                    "all_passed_rot": True,
-                    "obs_noise": 0.2,
-                    "use_controller": False,
+                    "obs_noise": 0.0,
                 },
             },
             "evaluation_interval": 100,
@@ -185,21 +181,20 @@ def train(
 if __name__ == "__main__":
     TrainingUtils.init_ray(scenario_name=scenario_name, local_mode=ON_MAC)
 
-    for seed in [3]:
-        train(
-            seed=seed,
-            restore=False,
-            notes="",
-            # Model important
-            share_observations=True,
-            heterogeneous=False,
-            # Other model
-            centralised_critic=False,
-            use_mlp=False,
-            add_agent_index=False,
-            aggr="add",
-            topology_type="full",
-            # Env
-            max_episode_steps=300,
-            continuous_actions=True,
-        )
+    train(
+        seed=3,
+        restore=False,
+        notes="",
+        # Model important
+        share_observations=True,
+        heterogeneous=False,
+        # Other model
+        centralised_critic=False,
+        use_mlp=False,
+        add_agent_index=False,
+        aggr="add",
+        topology_type="full",
+        # Env
+        max_episode_steps=300,
+        continuous_actions=True,
+    )
