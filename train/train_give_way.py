@@ -195,18 +195,18 @@ def train(
 if __name__ == "__main__":
     TrainingUtils.init_ray(scenario_name=scenario_name, local_mode=ON_MAC)
 
-    for seed in [0]:
+    for seed in [1]:
         train(
             seed=seed,
             restore=False,
             notes="",
             # Model important
             share_observations=True,
-            heterogeneous=True,
+            heterogeneous=False,
             # Other model
             centralised_critic=False,
             use_mlp=False,
-            add_agent_index=False,
+            add_agent_index=True,
             aggr="add",
             topology_type="full",
             # Env

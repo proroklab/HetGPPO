@@ -169,7 +169,7 @@ if __name__ == "__main__":
     TrainingUtils.init_ray(scenario_name=scenario_name, local_mode=ON_MAC)
 
     train(
-        seed=1,
+        seed=0,
         restore=False,
         notes="",
         # Model important
