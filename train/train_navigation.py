@@ -23,7 +23,7 @@ rollout_fragment_length = (
     if ON_MAC
     else train_batch_size // (num_workers * num_envs_per_worker)
 )
-scenario_name = "multi_give_way"
+scenario_name = "navigation"
 model_name = "GPPO"
 
 
@@ -136,17 +136,14 @@ def train(
                 "max_steps": max_episode_steps,
                 # Env specific
                 "scenario_config": {
-                    "u_range": 0.5,
-                    "a_range": 1,
-                    "obs_noise": 0,
-                    "linear_friction": 0.1,
-                    "min_input_norm": 0.08,
-                    "box_agents": False,
+                    "n_agents": 4,
+                    "lidar_range": 0.35,
+                    "agent_radius": 0.1,
+                    "shared_rew": False,
                     "pos_shaping_factor": 1,
                     "final_reward": 0.005,
                     "comm_range": comm_range,
-                    "shared_rew": False,
-                    "agent_collision_penalty": 0,
+                    "agent_collision_penalty": -1,
                 },
             },
             "evaluation_interval": 20,
@@ -174,21 +171,21 @@ def train(
 if __name__ == "__main__":
     TrainingUtils.init_ray(scenario_name=scenario_name, local_mode=ON_MAC)
 
-    for seed in [3]:
+    for seed in [2]:
         train(
             seed=seed,
             restore=False,
             notes="",
             # Model important
-            share_observations=True,
+            share_observations=False,
             heterogeneous=False,
             # Other model
             centralised_critic=False,
             use_mlp=False,
-            add_agent_index=True,
+            add_agent_index=False,
             aggr="add",
             topology_type=None,
-            comm_range=5,
+            comm_range=0.55,
             # Env
             max_episode_steps=200,
             continuous_actions=True,
