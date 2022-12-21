@@ -15,7 +15,7 @@ from utils import PathUtils, TrainingUtils
 
 ON_MAC = False
 
-train_batch_size = 60000 if not ON_MAC else 200  # Jan 32768
+train_batch_size = 30000 if not ON_MAC else 200  # Jan 32768
 num_workers = 4 if not ON_MAC else 0  # jan 4
 num_envs_per_worker = 75 if not ON_MAC else 1  # Jan 32
 rollout_fragment_length = (
@@ -94,7 +94,7 @@ def train(
             "train_batch_size": train_batch_size,
             "rollout_fragment_length": rollout_fragment_length,
             "sgd_minibatch_size": 2048 if not ON_MAC else 100,  # jan 2048
-            "num_sgd_iter": 25,  # Jan 30
+            "num_sgd_iter": 30,  # Jan 30
             "num_gpus": int(os.environ.get("RLLIB_NUM_GPUS", "0")),
             "num_workers": num_workers,
             "num_envs_per_worker": num_envs_per_worker,
@@ -135,10 +135,10 @@ def train(
                 # Env specific
                 "scenario_config": {},
             },
-            "evaluation_interval": 1,
+            "evaluation_interval": 5,
             "evaluation_duration": 1,
             "evaluation_num_workers": 1,
-            "evaluation_parallel_to_training": True,
+            "evaluation_parallel_to_training": False,
             "evaluation_config": {
                 "num_envs_per_worker": 1,
                 "env_config": {
@@ -148,6 +148,7 @@ def train(
                     [
                         TrainingUtils.RenderingCallbacks,
                         TrainingUtils.HeterogeneityMeasureCallbacks,
+                        TrainingUtils.EvaluationCallbacks,
                     ]
                 ),
             },
@@ -170,8 +171,8 @@ if __name__ == "__main__":
         restore=False,
         notes="",
         # Model important
-        share_observations=True,
-        heterogeneous=False,
+        share_observations=False,
+        heterogeneous=True,
         # Other model
         centralised_critic=False,
         use_mlp=False,
