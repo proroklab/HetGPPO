@@ -1,4 +1,4 @@
-#  Copyright (c) 2022.
+#  Copyright (c) 2022-2023.
 #  ProrokLab (https://www.proroklab.org/)
 #  All rights reserved.
 
@@ -48,42 +48,32 @@ def wasserstein_distance2(mean, sigma, mean2, sigma2):
     return d
 
 
-def kl_divergence(mean, sigma, mean2, sigma2, eps=1e-12):
-    # ensure that means are 1D arrays
-    mean = mean.reshape(-1)
-    mean2 = mean2.reshape(-1)
+def kl_divergence(mean, sigma, mean2, sigma2):
+    """
+    Kullback-Liebler divergence from Gaussian pm,pv to Gaussian qm,qv.
+    Also computes KL divergence from a single Gaussian pm,pv to a set
+    of Gaussians qm,qv.
 
-    # check that covariances are positive definite
-    np.linalg.cholesky(sigma)
-    np.linalg.cholesky(sigma2)
 
-    # compute difference in means
-    meandiff = mean2 - mean
+    From wikipedia
+    KL( (mean, sigma) || (mean2, sigma2))
+         = .5 * ( tr(sigma2^{-1} sigma) + log |sigma2|/|sigma| +
+                  (mean2 - mean)^T sigma2^{-1} (mean2 - mean) - N )
+    """
+    # store inv diag covariance of sigma2 and diff between means
+    N = mean.shape[0]
+    isigma2 = np.linalg.inv(sigma2)
+    diff = mean2 - mean
 
-    # ignoring tiny differences in dimensions with tiny variance
-    var = sigma.diagonal()
-    var2 = sigma2.diagonal()
-    tinyind = ((var < eps) * (var2 < eps)).nonzero()[0]
-    if tinyind.size > 0:
-        if meandiff[tinyind] < eps:
-            meandiff[tinyind] = 0.0
-
-    # compute inverse of Sigma2
-    Sigma2inv = np.linalg.inv(sigma2)
-
-    # compute log determinants
-    (sign, logdet) = np.linalg.slogdet(sigma)
-    sldet = sign * logdet
-    (sign, logdet) = np.linalg.slogdet(sigma2)
-    sldet2 = sign * logdet
-
-    return 0.5 * (
-        (Sigma2inv @ sigma).trace()
-        - mean.size
-        + meandiff @ Sigma2inv @ meandiff
-        + sldet2
-        - sldet
-    )
+    # kl is made of three terms
+    tr_term = np.trace(isigma2 @ sigma)
+    det_term = np.log(
+        np.linalg.det(sigma2) / np.linalg.det(sigma)
+    )  # np.sum(np.log(sigma2)) - np.sum(np.log(sigma))
+    quad_term = diff.T @ np.linalg.inv(sigma2) @ diff
+    kl = 0.5 * (tr_term + det_term + quad_term - N)
+    assert kl > -1e-3
+    return max(0.0, kl)
 
 
 def kl_symmetric(mean, sigma, mean2, sigma2):
