@@ -1,6 +1,7 @@
 #  Copyright (c) 2022-2023.
 #  ProrokLab (https://www.proroklab.org/)
 #  All rights reserved.
+import copy
 import pickle
 import platform
 from enum import Enum
@@ -9,6 +10,7 @@ from typing import Dict, Optional, Tuple, Set, Callable
 from typing import Union
 
 import ray
+import torch
 import vmas
 import wandb
 from ray.rllib import RolloutWorker, BaseEnv, Policy, VectorEnv
@@ -18,8 +20,10 @@ from ray.rllib.models import ModelCatalog
 from ray.rllib.utils.typing import PolicyID
 from ray.tune import register_env
 from vmas import make_env
+from vmas.simulator.environment import Environment
 
 from evaluate.distance_metrics import *
+from evaluate.evaluate_model import TorchDiagGaussian
 from models.gppo import GPPO
 from rllib_differentiable_comms.multi_action_dist import (
     TorchHomogeneousMultiActionDistribution,
@@ -149,6 +153,239 @@ class TrainingUtils:
                 vid, fps=1 / base_env.vector_env.env.world.dt, format="mp4"
             )
             self.frames = []
+
+    class HeterogeneityMeasureCallbacks(DefaultCallbacks):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.policy = None
+            self.all_obs = []
+
+        def on_episode_step(
+            self,
+            *,
+            worker: RolloutWorker,
+            base_env: BaseEnv,
+            policies: Optional[Dict[PolicyID, Policy]] = None,
+            episode: Episode,
+            **kwargs,
+        ) -> None:
+            obs = episode.last_raw_obs_for()
+            act = episode.last_action_for()
+            info = episode.last_info_for()
+            reward = episode.last_reward_for()
+            for i, agent_obs in enumerate(obs):
+                obs[i] = torch.tensor(obs[i]).unsqueeze(0)
+            self.all_obs.append(obs)
+
+        def on_episode_end(
+            self,
+            *,
+            worker: RolloutWorker,
+            base_env: BaseEnv,
+            policies: Dict[PolicyID, Policy],
+            episode: Episode,
+            **kwargs,
+        ) -> None:
+            self.env: Environment = base_env.vector_env.env
+            self.n_agents = self.env.n_agents
+
+            self.policy = policies["default_policy"]
+            self.model = self.policy.model
+            self.model_state_dict = self.model.state_dict()
+
+            self.temp_model_i = copy.deepcopy(self.model)
+            self.temp_model_j = copy.deepcopy(self.model)
+            self.temp_model_i.eval()
+            self.temp_model_j.eval()
+
+            dists = torch.full(
+                (
+                    len(self.all_obs),
+                    int((self.n_agents * (self.n_agents - 1)) / 2),
+                    self.n_agents,
+                    self.env.get_agent_action_size(self.env.agents[0]),
+                ),
+                -1.0,
+                dtype=torch.float,
+            )
+            # num_obs,
+            # number of unique pairs,
+            # number of spots within an observation where I can evaluate the agents,
+            # number of actions per agent
+
+            all_measures = {
+                "wasserstein": dists,
+                "kl": dists.clone(),
+                "kl_sym": dists.clone(),
+                "hellinger": dists.clone(),
+                "bhattacharyya": dists.clone(),
+            }
+
+            pair_index = 0
+            to_check_count = 0
+            for i in range(self.n_agents):
+                for j in range(self.n_agents):
+                    if j <= i:
+                        continue
+                    # Line run for all pairs
+                    for agent_index in range(self.n_agents):
+                        self.temp_model_i.load_state_dict(self.model_state_dict)
+                        self.temp_model_j.load_state_dict(self.model_state_dict)
+                        for temp_layer_i, temp_layer_j, layer in zip(
+                            self.temp_model_i.gnn.children(),
+                            self.temp_model_j.gnn.children(),
+                            self.model.gnn.children(),
+                        ):
+                            if len(list(temp_layer_j.children())) > 1:
+                                self.load_agent_x_in_pos_y(
+                                    temp_layer_i, layer, x=i, y=agent_index
+                                )
+                                self.load_agent_x_in_pos_y(
+                                    temp_layer_j, layer, x=j, y=agent_index
+                                )
+
+                        for obs_index, obs in enumerate(self.all_obs):
+                            if obs_index == 0 and agent_index == 1:
+                                to_check = True
+                                to_check_count += 1
+                            else:
+                                to_check = False
+                            return_dict = self.compute_distance(
+                                self.temp_model_i,
+                                self.temp_model_j,
+                                obs,
+                                agent_index,
+                                i,
+                                j,
+                                episode,
+                                to_check,
+                            )
+                            for key, value in all_measures.items():
+                                all_measures[key][
+                                    obs_index, pair_index, agent_index
+                                ] = return_dict[key]
+                            assert to_check_count <= 1
+                    pair_index += 1
+            for key, value in all_measures.items():
+                assert not (value < 0).any(), f"{key}_{value}"
+                episode.custom_metrics[key] = (
+                    value.mean(-1).mean(-1).mean(-1).mean().item()
+                )
+
+        def load_agent_x_in_pos_y(self, temp_model, model, x, y):
+            temp_model[y].load_state_dict(model[x].state_dict())
+            return temp_model
+
+        def compute_distance(
+            self,
+            temp_model_i,
+            temp_model_j,
+            obs,
+            action_index,
+            i,
+            j,
+            episode,
+            to_check,
+        ):
+
+            input_dict = {"obs": obs}
+
+            logits_i = temp_model_i(input_dict)[0].detach()[0]
+            logits_j = temp_model_j(input_dict)[0].detach()[0]
+
+            input_lens = [
+                2 * self.env.get_agent_action_size(self.env.agents[0])
+            ] * self.n_agents
+
+            logits_i = logits_i.view(1, -1)
+            logits_j = logits_j.view(1, -1)
+
+            split_inputs_i = torch.split(logits_i, input_lens, dim=1)
+            split_inputs_j = torch.split(logits_j, input_lens, dim=1)
+
+            distr_i = TorchDiagGaussian(
+                split_inputs_i[action_index], self.env.agents[0].u_range
+            )
+            distr_j = TorchDiagGaussian(
+                split_inputs_j[action_index], self.env.agents[0].u_range
+            )
+
+            mean_i = distr_i.dist.mean
+            mean_j = distr_j.dist.mean
+
+            var_i = distr_i.dist.variance
+            var_j = distr_i.dist.variance
+
+            if to_check:
+                self.checkoutput(distr_i, i, episode)
+                self.checkoutput(distr_j, j, episode)
+
+            wasserstein = []
+            for k in range(self.env.get_agent_action_size(self.env.agents[0])):
+                version1 = torch.tensor(
+                    wasserstein_distance(
+                        mean_i[..., k].numpy(),
+                        var_i[..., k].unsqueeze(-1).numpy(),
+                        mean_j[..., k].numpy(),
+                        var_j[..., k].unsqueeze(-1).numpy(),
+                    )
+                )
+                # version2 = torch.tensor(
+                #     wasserstein_distance2(
+                #         mean_i[..., k].numpy(),
+                #         var_i[..., k].unsqueeze(-1).numpy(),
+                #         mean_j[..., k].numpy(),
+                #         var_j[..., k].unsqueeze(-1).numpy(),
+                #     )
+                # )
+                # assert torch.isclose(
+                #     version1, version2, atol=1e-3
+                # ), f"{version1} != {version2}"
+                wasserstein.append(version1)
+            wasserstein = torch.stack(wasserstein)
+
+            return_value = {
+                "wasserstein": wasserstein,
+            }
+
+            for name, distance in zip(
+                [
+                    "kl",
+                    "kl_sym",
+                    "hellinger",
+                    "bhattacharyya",
+                ],
+                [
+                    kl_divergence,
+                    kl_symmetric,
+                    hellinger_distance,
+                    bhattacharyya_distance,
+                ],
+            ):
+                distances = []
+                for k in range(self.env.get_agent_action_size(self.env.agents[0])):
+                    distances.append(
+                        torch.tensor(
+                            distance(
+                                mean_i[..., k].numpy(),
+                                var_i[..., k].unsqueeze(-1).numpy(),
+                                mean_j[..., k].numpy(),
+                                var_j[..., k].unsqueeze(-1).numpy(),
+                            )
+                        )
+                    )
+                    assert (
+                        distances[k] >= 0
+                    ).all(), f"{name}, [{distances[k]} with mean_i {mean_i[..., k]} var_i {var_i[...,k]}, mean_j {mean_j[..., k]} var_j {var_j[...,k]}"
+                return_value[name] = torch.stack(distances)
+
+            return return_value
+
+        def checkoutput(self, distr: TorchDiagGaussian, index, episode):
+            for i in range(self.env.get_agent_action_size(self.env.agents[0])):
+                episode.custom_metrics[
+                    f"agent_{index}/sample_{'x' if i == 0 else 'y'}"
+                ] = distr.sample()[..., i].item()
 
 
 class EvaluationUtils:
