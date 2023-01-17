@@ -23,7 +23,7 @@ rollout_fragment_length = (
     if ON_MAC
     else train_batch_size // (num_workers * num_envs_per_worker)
 )
-scenario_name = "hetero"
+scenario_name = "multi_goal"
 model_name = "GPPO"
 
 
@@ -133,7 +133,7 @@ def train(
                 "continuous_actions": continuous_actions,
                 "max_steps": max_episode_steps,
                 # Env specific
-                "scenario_config": {"des_action": 0},
+                "scenario_config": {"n_agents": 2},
             },
             "evaluation_interval": 5,
             "evaluation_duration": 1,

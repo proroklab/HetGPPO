@@ -4,7 +4,6 @@
 
 import numpy as np
 import scipy
-import scipy.linalg
 import torch.distributions
 
 
@@ -30,20 +29,22 @@ def wasserstein_distance2(mean, sigma, mean2, sigma2):
     mu_1 = mean2
     K_1 = sigma2
 
-    sqrtK_0 = scipy.linalg.sqrtm(K_0)
-    first_term = sqrtK_0 @ K_1
-    K_0_K_1_K_0 = first_term @ sqrtK_0
+    sqrtK_1 = scipy.linalg.sqrtm(K_1)
+    first_term = sqrtK_1 @ K_0
+    K_1_K_0_K_1 = first_term @ sqrtK_1
 
     cov_dist = (
         np.trace(K_0)
         + np.trace(K_1)
-        - 2 * np.trace(scipy.linalg.sqrtm(K_0_K_1_K_0).astype(np.float32))
+        - 2 * np.trace(scipy.linalg.sqrtm(K_1_K_0_K_1).astype(np.float32))
     )
 
     l2norm = np.linalg.norm(mu_0 - mu_1, ord=2) ** 2
 
     d = np.real(np.sqrt(l2norm + cov_dist))
-    assert d >= 0
+    if d < 0:
+        print(d)
+        raise AssertionError
 
     return d
 
@@ -98,20 +99,30 @@ def hellinger_distance(mu1, sigma1, mu2, sigma2):
 
     assert 0 <= hellinger <= 1
 
+    b_d = bhattacharyya_distance(mu1, sigma1, mu2, sigma2)
+    bc = np.exp(-b_d)
+
+    assert hellinger == np.sqrt(1 - bc)
+
     return hellinger
 
 
 def bhattacharyya_distance(mu1, sigma1, mu2, sigma2):
-    hellinger = hellinger_distance(mu1, sigma1, mu2, sigma2)
-    bhat_coeff = 1 - (hellinger**2)
 
-    assert 0 <= bhat_coeff <= 1
+    m1_minus_m2 = mu1 - mu2
+    sigma = (sigma1 + sigma2) / 2
 
-    bhat_dist = -np.log(bhat_coeff)
+    det_sigma1 = np.linalg.det(sigma1)
+    det_sigma2 = np.linalg.det(sigma2)
+    det_sigma = np.linalg.det(sigma)
 
-    assert bhat_dist >= 0
+    det_term = 0.5 * np.log(det_sigma / np.sqrt(det_sigma1 * det_sigma2))
 
-    return np.abs(bhat_dist)
+    central_term = m1_minus_m2.T @ np.linalg.inv(sigma) @ m1_minus_m2
+
+    d = (1 / 8) * central_term + det_term
+
+    return d
 
 
 if __name__ == "__main__":
