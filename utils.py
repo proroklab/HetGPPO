@@ -268,9 +268,7 @@ class TrainingUtils:
                     pair_index += 1
             for key, value in all_measures.items():
                 assert not (value < 0).any(), f"{key}_{value}"
-                episode.custom_metrics[key] = (
-                    value.mean(-1).mean(-1).mean(-1).mean().item()
-                )
+                episode.custom_metrics[key] = value.mean().item()
 
         def load_agent_x_in_pos_y(self, temp_model, model, x, y):
             temp_model[y].load_state_dict(model[x].state_dict())
