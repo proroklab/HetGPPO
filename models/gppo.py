@@ -488,6 +488,7 @@ class GPPOBranch(nn.Module):
                     for _ in range(self.n_agents if self.hetero_decoders else 1)
                 ]
             )
+        self.share_init_hetero_networks()
 
     def forward(self, obs, pos, vel):
         batch_size = obs.shape[0]
@@ -589,6 +590,15 @@ class GPPOBranch(nn.Module):
                 out2 = self.heads2[0](local_enc + gnn_enc)
 
         return out, (out2 if self.double_output else None)
+
+    def share_init_hetero_networks(self):
+        for child in self.children():
+            assert isinstance(child, nn.ModuleList)
+            for agent_index, agent_model in enumerate(child.children()):
+                if agent_index == 0:
+                    state_dict = agent_model.state_dict()
+                else:
+                    agent_model.load_state_dict(state_dict)
 
 
 class GPPO(TorchModelV2, nn.Module):
