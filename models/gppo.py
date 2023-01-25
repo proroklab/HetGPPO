@@ -1,4 +1,4 @@
-#  Copyright (c) 2022.
+#  Copyright (c) 2022-2023.
 #  ProrokLab (https://www.proroklab.org/)
 #  All rights reserved.
 
@@ -361,19 +361,15 @@ class GPPOBranch(nn.Module):
         self,
         in_features,
         out_features,
-        double_output: bool,
-        out_features_2,
         edge_features,
         n_agents,
         centralised,
         edge_index,
         comm_radius_processed,
+        out_features_2=None,
         **cfg,
     ):
         super().__init__()
-
-        if not double_output:
-            assert out_features_2 is None
 
         self.n_agents = n_agents
 
@@ -381,7 +377,7 @@ class GPPOBranch(nn.Module):
         self.edge_features = edge_features
         self.out_features = out_features
         self.out_features2 = out_features_2
-        self.double_output = double_output
+        self.double_output = out_features_2 is not None
         self.centralised = centralised
         self.edge_index = edge_index
         self.comm_radius = comm_radius_processed
@@ -512,7 +508,7 @@ class GPPOBranch(nn.Module):
             node_enc = self.encoders[0](obs)
             local_enc = self.local_nns[0](obs)
 
-        if self.centralised and self.centralised_mlps is not None:
+        if self.centralised:
             gnn_enc = node_enc.view(batch_size, self.n_agents * self.node_embedding)
 
             if self.hetero_gnns:
@@ -612,6 +608,7 @@ class GPPO(TorchModelV2, nn.Module):
         self.pos_start = cfg["pos_start"]
         self.vel_start = cfg["vel_start"]
         self.vel_dim = cfg["vel_dim"]
+        self.trainer = cfg["trainer"]
 
         self.share_action_value = cfg["share_action_value"]
         self.share_observations = cfg["share_observations"]
@@ -739,10 +736,9 @@ class GPPO(TorchModelV2, nn.Module):
         else:
             outputs, values = self.gnn(obs=obs_no_pos, pos=pos, vel=vel)
 
-        values = values.view(
-            batch_size, self.n_agents
-        )  # .squeeze(-1)  # If using default ppo trainer with one agent
-
+        values = values.view(batch_size, self.n_agents)
+        if self.trainer == "PPOTrainer":
+            values = values.squeeze(-1)  # If using default ppo trainer with one agent
         self._cur_value = values
 
         outputs = outputs.view(batch_size, self.n_agents * self.outputs_per_agent)

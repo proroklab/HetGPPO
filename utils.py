@@ -24,6 +24,7 @@ from vmas.simulator.environment import Environment
 
 from evaluate.distance_metrics import *
 from evaluate.evaluate_model import TorchDiagGaussian
+from models.fcnet import MyFullyConnectedNetwork
 from models.gppo import GPPO
 from rllib_differentiable_comms.multi_action_dist import (
     TorchHomogeneousMultiActionDistribution,
@@ -73,6 +74,9 @@ class TrainingUtils:
             print("Ray init!")
         register_env(scenario_name, lambda config: TrainingUtils.env_creator(config))
         ModelCatalog.register_custom_model("GPPO", GPPO)
+        ModelCatalog.register_custom_model(
+            "MyFullyConnectedNetwork", MyFullyConnectedNetwork
+        )
         ModelCatalog.register_custom_action_dist(
             "hom_multi_action", TorchHomogeneousMultiActionDistribution
         )
