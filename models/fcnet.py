@@ -3,6 +3,7 @@
 #  All rights reserved.
 import gym
 import numpy as np
+from ray.rllib.models import ModelV2
 from ray.rllib.models.torch.misc import SlimFC, AppendBiasLayer, normc_initializer
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.utils.annotations import override
@@ -13,8 +14,6 @@ torch, nn = try_import_torch()
 
 
 class MyFullyConnectedNetwork(TorchModelV2, nn.Module):
-    """Generic fully connected network."""
-
     def __init__(
         self,
         obs_space: gym.spaces.Space,
@@ -22,11 +21,87 @@ class MyFullyConnectedNetwork(TorchModelV2, nn.Module):
         num_outputs: int,
         model_config: ModelConfigDict,
         name: str,
-        **cfg
+        **cfg,
     ):
         TorchModelV2.__init__(
             self, obs_space, action_space, num_outputs, model_config, name
         )
+        nn.Module.__init__(self)
+
+        self.n_agents = len(obs_space.original_space)
+        self.outputs_per_agent = num_outputs // self.n_agents
+        self.trainer = cfg["trainer"]
+        self.heterogeneous = cfg["heterogeneous"]
+        self.use_beta = False
+        self.agent_networks = nn.ModuleList(
+            [
+                MyFullyConnectedNetworkInner(
+                    obs_space.original_space[i],
+                    self.outputs_per_agent,
+                    model_config,
+                )
+                for i in range(self.n_agents if self.heterogeneous else 1)
+            ]
+        )
+        self.share_init_hetero_networks()
+
+    def forward(
+        self,
+        input_dict: Dict[str, TensorType],
+        state: List[TensorType],
+        seq_lens: TensorType,
+    ) -> (TensorType, List[TensorType]):
+        batch_size = input_dict["obs"][0].shape[0]
+        obs = torch.stack(input_dict["obs"], dim=1)
+
+        if self.heterogeneous:
+            logits = torch.stack(
+                [net(obs[:, i], state)[0] for i, net in enumerate(self.agent_networks)],
+                dim=1,
+            )
+            value = torch.stack(
+                [net.value_function() for i, net in enumerate(self.agent_networks)],
+                dim=1,
+            )
+        else:
+            logits, state = self.agent_networks[0](obs, state)
+            value = self.agent_networks[0].value_function().squeeze(-1)
+
+        if self.trainer == "PPOTrainer":
+            assert self.n_agents == 1
+            value = value.squeeze(-1)  # If using default ppo trainer with one agent
+
+        self._cur_value = value
+
+        logits = logits.view(batch_size, self.n_agents * self.outputs_per_agent)
+        assert not logits.isnan().any()
+
+        return logits, state
+
+    @override(ModelV2)
+    def value_function(self):
+        assert self._cur_value is not None, "must call forward() first"
+        return self._cur_value
+
+    def share_init_hetero_networks(self):
+        for child in self.children():
+            assert isinstance(child, nn.ModuleList)
+            for agent_index, agent_model in enumerate(child.children()):
+                if agent_index == 0:
+                    state_dict = agent_model.state_dict()
+                else:
+                    agent_model.load_state_dict(state_dict)
+
+
+class MyFullyConnectedNetworkInner(nn.Module):
+    """Generic fully connected network."""
+
+    def __init__(
+        self,
+        obs_space: gym.spaces.Space,
+        num_outputs: int,
+        model_config: ModelConfigDict,
+    ):
         nn.Module.__init__(self)
 
         hiddens = list(model_config.get("fcnet_hiddens", [])) + list(
@@ -38,9 +113,6 @@ class MyFullyConnectedNetwork(TorchModelV2, nn.Module):
         no_final_linear = model_config.get("no_final_linear")
         self.vf_share_layers = model_config.get("vf_share_layers")
         self.free_log_std = model_config.get("free_log_std")
-        self.n_agents = len(obs_space.original_space)
-        self.trainer = cfg["trainer"]
-        self.use_beta = False
         # Generate free-floating bias variables for the second half of
         # the outputs.
         if self.free_log_std:
@@ -128,7 +200,7 @@ class MyFullyConnectedNetwork(TorchModelV2, nn.Module):
 
         self._value_branch = SlimFC(
             in_size=prev_layer_size,
-            out_size=self.n_agents,
+            out_size=1,
             initializer=normc_initializer(0.01),
             activation_fn=None,
         )
@@ -140,27 +212,21 @@ class MyFullyConnectedNetwork(TorchModelV2, nn.Module):
     @override(TorchModelV2)
     def forward(
         self,
-        input_dict: Dict[str, TensorType],
+        obs: torch.Tensor,
         state: List[TensorType],
-        seq_lens: TensorType,
     ) -> (TensorType, List[TensorType]):
-        obs = input_dict["obs_flat"].float()
-        self._last_flat_in = obs.reshape(obs.shape[0], -1)
+        self._last_flat_in = obs
         self._features = self._hidden_layers(self._last_flat_in)
         logits = self._logits(self._features) if self._logits else self._features
         if self.free_log_std:
-            assert False
             logits = self._append_free_log_std(logits)
         return logits, state
 
-    @override(TorchModelV2)
     def value_function(self) -> TensorType:
         assert self._features is not None, "must call forward() first"
-
         if self._value_branch_separate:
-            value = self._value_branch(self._value_branch_separate(self._last_flat_in))
+            return self._value_branch(
+                self._value_branch_separate(self._last_flat_in)
+            ).squeeze(1)
         else:
-            value = self._value_branch(self._features)
-        if self.trainer == "PPOTrainer":
-            value = value.squeeze(-1)  # If using default ppo trainer with one agent
-        return value
+            return self._value_branch(self._features).squeeze(1)
