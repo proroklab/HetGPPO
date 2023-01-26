@@ -748,6 +748,7 @@ class GPPO(TorchModelV2, nn.Module):
 
         values = values.view(batch_size, self.n_agents)
         if self.trainer == "PPOTrainer":
+            assert self.n_agents == 1
             values = values.squeeze(-1)  # If using default ppo trainer with one agent
         self._cur_value = values
 
