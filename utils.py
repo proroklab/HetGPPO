@@ -19,6 +19,7 @@ from ray.rllib.evaluation import Episode
 from ray.rllib.models import ModelCatalog
 from ray.rllib.utils.typing import PolicyID
 from ray.tune import register_env
+from torch import nn
 from vmas import make_env
 from vmas.simulator.environment import Environment
 
@@ -235,12 +236,22 @@ class TrainingUtils:
                     for agent_index in range(self.n_agents):
                         self.temp_model_i.load_state_dict(self.model_state_dict)
                         self.temp_model_j.load_state_dict(self.model_state_dict)
+                        try:
+                            model = self.model.gnn
+                            temp_model_i = self.temp_model_i.gnn
+                            temp_model_j = self.temp_model_j.gnn
+                        except AttributeError:
+                            model = self.model
+                            temp_model_i = self.temp_model_i
+                            temp_model_j = self.temp_model_j
                         for temp_layer_i, temp_layer_j, layer in zip(
-                            self.temp_model_i.gnn.children(),
-                            self.temp_model_j.gnn.children(),
-                            self.model.gnn.children(),
+                            temp_model_i.children(),
+                            temp_model_j.children(),
+                            model.children(),
                         ):
-                            if len(list(temp_layer_j.children())) > 1:
+                            assert isinstance(layer, nn.ModuleList)
+                            if len(list(layer.children())) > 1:
+                                assert len(list(layer.children())) == self.n_agents
                                 self.load_agent_x_in_pos_y(
                                     temp_layer_i, layer, x=i, y=agent_index
                                 )
@@ -265,6 +276,13 @@ class TrainingUtils:
                                 to_check,
                             )
                             for key, value in all_measures.items():
+                                assert (
+                                    all_measures[key][
+                                        obs_index, pair_index, agent_index
+                                    ].shape
+                                    == return_dict[key].shape
+                                )
+
                                 all_measures[key][
                                     obs_index, pair_index, agent_index
                                 ] = return_dict[key]
@@ -283,7 +301,7 @@ class TrainingUtils:
             temp_model_i,
             temp_model_j,
             obs,
-            action_index,
+            agent_index,
             i,
             j,
             episode,
@@ -292,24 +310,21 @@ class TrainingUtils:
 
             input_dict = {"obs": obs}
 
-            logits_i = temp_model_i(input_dict)[0].detach()[0]
-            logits_j = temp_model_j(input_dict)[0].detach()[0]
+            logits_i = temp_model_i(input_dict)[0].detach()
+            logits_j = temp_model_j(input_dict)[0].detach()
 
             input_lens = [
                 2 * self.env.get_agent_action_size(self.env.agents[0])
             ] * self.n_agents
 
-            logits_i = logits_i.view(1, -1)
-            logits_j = logits_j.view(1, -1)
-
             split_inputs_i = torch.split(logits_i, input_lens, dim=1)
             split_inputs_j = torch.split(logits_j, input_lens, dim=1)
 
             distr_i = TorchDiagGaussian(
-                split_inputs_i[action_index], self.env.agents[0].u_range
+                split_inputs_i[agent_index], self.env.agents[agent_index].u_range
             )
             distr_j = TorchDiagGaussian(
-                split_inputs_j[action_index], self.env.agents[0].u_range
+                split_inputs_j[agent_index], self.env.agents[agent_index].u_range
             )
 
             mean_i = distr_i.dist.mean
