@@ -7,6 +7,7 @@ import pickle
 
 from ray import tune
 from ray.air.callbacks.wandb import WandbLoggerCallback
+from ray.rllib.agents.ppo import PPOTrainer
 from ray.rllib.algorithms.callbacks import MultiCallbacks
 from ray.rllib.models import MODEL_DEFAULTS
 
@@ -14,9 +15,10 @@ from rllib_differentiable_comms.multi_trainer import MultiPPOTrainer
 from utils import PathUtils, TrainingUtils
 
 ON_MAC = False
+save = PPOTrainer
 
 train_batch_size = 60000 if not ON_MAC else 200  # Jan 32768
-num_workers = 2 if not ON_MAC else 0  # jan 4
+num_workers = 4 if not ON_MAC else 0  # jan 4
 num_envs_per_worker = 150 if not ON_MAC else 1  # Jan 32
 rollout_fragment_length = (
     train_batch_size
@@ -24,7 +26,8 @@ rollout_fragment_length = (
     else train_batch_size // (num_workers * num_envs_per_worker)
 )
 scenario_name = "multi_goal"
-model_name = "GPPO"
+model_name = "MyFullyConnectedNetwork"
+# model_name = "GPPO"
 
 
 def train(
@@ -45,9 +48,6 @@ def train(
     checkpoint_path = PathUtils.scratch_dir / checkpoint_rel_path
     params_path = checkpoint_path.parent.parent / "params.pkl"
 
-    fcnet_model_config = MODEL_DEFAULTS.copy()
-    fcnet_model_config.update({"vf_share_layers": False})
-
     if centralised_critic and not use_mlp:
         if share_observations:
             group_name = "GAPPO"
@@ -66,8 +66,12 @@ def train(
         with open(params_path, "rb") as f:
             config = pickle.load(f)
 
+    trainer = MultiPPOTrainer
+    trainer_name = "MultiPPOTrainer" if trainer is MultiPPOTrainer else "PPOTrainer"
+    fcnet_model_config = MODEL_DEFAULTS.copy()
+    fcnet_model_config.update({"trainer": trainer_name, "heterogeneous": heterogeneous})
     tune.run(
-        MultiPPOTrainer,
+        trainer,
         name=group_name if model_name.startswith("GPPO") else model_name,
         callbacks=[
             WandbLoggerCallback(
@@ -78,7 +82,7 @@ def train(
             )
         ],
         local_dir=str(PathUtils.scratch_dir / "ray_results" / scenario_name),
-        stop={"training_iteration": 5000},
+        stop={"training_iteration": 500},
         restore=str(checkpoint_path) if restore else None,
         config={
             "seed": seed,
@@ -102,10 +106,13 @@ def train(
             "gamma": 0.99,
             "use_gae": True,
             "use_critic": True,
+            "grad_clip": None,
             "batch_mode": "complete_episodes",
             "model": {
                 "custom_model": model_name,
-                "custom_action_dist": "hom_multi_action",
+                "custom_action_dist": (
+                    "hom_multi_action" if trainer is MultiPPOTrainer else None
+                ),
                 "custom_model_config": {
                     "activation_fn": "relu",
                     "share_observations": share_observations,
@@ -122,6 +129,7 @@ def train(
                     "vel_start": 2,
                     "vel_dim": 2,
                     "share_action_value": True,
+                    "trainer": trainer_name,
                 }
                 if model_name.startswith("GPPO")
                 else fcnet_model_config,
@@ -133,9 +141,12 @@ def train(
                 "continuous_actions": continuous_actions,
                 "max_steps": max_episode_steps,
                 # Env specific
-                "scenario_config": {"n_agents": 2},
+                "scenario_config": {
+                    "n_agents": 2,
+                    "same_goal": True,
+                },
             },
-            "evaluation_interval": 5,
+            "evaluation_interval": 10,
             "evaluation_duration": 1,
             "evaluation_num_workers": 1,
             "evaluation_parallel_to_training": False,
@@ -147,8 +158,8 @@ def train(
                 "callbacks": MultiCallbacks(
                     [
                         TrainingUtils.RenderingCallbacks,
-                        TrainingUtils.HeterogeneityMeasureCallbacks,
                         TrainingUtils.EvaluationCallbacks,
+                        TrainingUtils.HeterogeneityMeasureCallbacks,
                     ]
                 ),
             },
@@ -172,7 +183,7 @@ if __name__ == "__main__":
         notes="",
         # Model important
         share_observations=False,
-        heterogeneous=True,
+        heterogeneous=False,
         # Other model
         centralised_critic=False,
         use_mlp=False,
