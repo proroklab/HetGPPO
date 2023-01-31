@@ -193,6 +193,9 @@ class TrainingUtils:
         ) -> None:
             self.env: Environment = base_env.vector_env.env
             self.n_agents = self.env.n_agents
+            self.input_lens = [
+                2 * self.env.get_agent_action_size(agent) for agent in self.env.agents
+            ]
 
             self.policy = policies["default_policy"]
             self.model = self.policy.model
@@ -227,7 +230,6 @@ class TrainingUtils:
             }
 
             pair_index = 0
-            to_check_count = 0
             for i in range(self.n_agents):
                 for j in range(self.n_agents):
                     if j <= i:
@@ -260,20 +262,11 @@ class TrainingUtils:
                                 )
 
                         for obs_index, obs in enumerate(self.all_obs):
-                            if obs_index == 0 and agent_index == 1:
-                                to_check = True
-                                to_check_count += 1
-                            else:
-                                to_check = False
                             return_dict = self.compute_distance(
                                 self.temp_model_i,
                                 self.temp_model_j,
                                 obs,
                                 agent_index,
-                                i,
-                                j,
-                                episode,
-                                to_check,
                             )
                             for key, value in all_measures.items():
                                 assert (
@@ -282,11 +275,9 @@ class TrainingUtils:
                                     ].shape
                                     == return_dict[key].shape
                                 )
-
                                 all_measures[key][
                                     obs_index, pair_index, agent_index
                                 ] = return_dict[key]
-                            assert to_check_count <= 1
                     pair_index += 1
             for key, value in all_measures.items():
                 assert not (value < 0).any(), f"{key}_{value}"
@@ -302,10 +293,6 @@ class TrainingUtils:
             temp_model_j,
             obs,
             agent_index,
-            i,
-            j,
-            episode,
-            to_check,
         ):
 
             input_dict = {"obs": obs}
@@ -313,12 +300,8 @@ class TrainingUtils:
             logits_i = temp_model_i(input_dict)[0].detach()
             logits_j = temp_model_j(input_dict)[0].detach()
 
-            input_lens = [
-                2 * self.env.get_agent_action_size(self.env.agents[0])
-            ] * self.n_agents
-
-            split_inputs_i = torch.split(logits_i, input_lens, dim=1)
-            split_inputs_j = torch.split(logits_j, input_lens, dim=1)
+            split_inputs_i = torch.split(logits_i, self.input_lens, dim=1)
+            split_inputs_j = torch.split(logits_j, self.input_lens, dim=1)
 
             distr_i = TorchDiagGaussian(
                 split_inputs_i[agent_index], self.env.agents[agent_index].u_range
@@ -333,46 +316,17 @@ class TrainingUtils:
             var_i = distr_i.dist.variance
             var_j = distr_i.dist.variance
 
-            if to_check:
-                self.checkoutput(distr_i, i, episode)
-                self.checkoutput(distr_j, j, episode)
-
-            wasserstein = []
-            for k in range(self.env.get_agent_action_size(self.env.agents[0])):
-                version1 = torch.tensor(
-                    wasserstein_distance(
-                        mean_i[..., k].numpy(),
-                        var_i[..., k].unsqueeze(-1).numpy(),
-                        mean_j[..., k].numpy(),
-                        var_j[..., k].unsqueeze(-1).numpy(),
-                    )
-                )
-                # version2 = torch.tensor(
-                #     wasserstein_distance2(
-                #         mean_i[..., k].numpy(),
-                #         var_i[..., k].unsqueeze(-1).numpy(),
-                #         mean_j[..., k].numpy(),
-                #         var_j[..., k].unsqueeze(-1).numpy(),
-                #     )
-                # )
-                # assert torch.isclose(
-                #     version1, version2, atol=1e-3
-                # ), f"{version1} != {version2}"
-                wasserstein.append(version1)
-            wasserstein = torch.stack(wasserstein)
-
-            return_value = {
-                "wasserstein": wasserstein,
-            }
-
+            return_value = {}
             for name, distance in zip(
                 [
+                    "wasserstein",
                     "kl",
                     "kl_sym",
                     "hellinger",
                     "bhattacharyya",
                 ],
                 [
+                    wasserstein_distance,
                     kl_divergence,
                     kl_symmetric,
                     hellinger_distance,
@@ -397,12 +351,6 @@ class TrainingUtils:
                 return_value[name] = torch.stack(distances)
 
             return return_value
-
-        def checkoutput(self, distr: TorchDiagGaussian, index, episode):
-            for i in range(self.env.get_agent_action_size(self.env.agents[0])):
-                episode.custom_metrics[
-                    f"agent_{index}/sample_{'x' if i == 0 else 'y'}"
-                ] = distr.sample()[..., i].item()
 
 
 class EvaluationUtils:
