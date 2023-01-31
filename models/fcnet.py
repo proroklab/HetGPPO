@@ -65,7 +65,7 @@ class MyFullyConnectedNetwork(TorchModelV2, nn.Module):
             )
         else:
             logits, state = self.agent_networks[0](obs, state)
-            value = self.agent_networks[0].value_function().squeeze(-1)
+            value = self.agent_networks[0].value_function()
 
         if self.trainer == "PPOTrainer":
             assert self.n_agents == 1
@@ -227,6 +227,6 @@ class MyFullyConnectedNetworkInner(nn.Module):
         if self._value_branch_separate:
             return self._value_branch(
                 self._value_branch_separate(self._last_flat_in)
-            ).squeeze(1)
+            ).squeeze(-1)
         else:
-            return self._value_branch(self._features).squeeze(1)
+            return self._value_branch(self._features).squeeze(-1)
