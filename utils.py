@@ -164,6 +164,11 @@ class TrainingUtils:
             super().__init__(*args, **kwargs)
             self.policy = None
             self.all_obs = []
+            self.all_act = []
+
+        def reset(self):
+            self.all_obs = []
+            self.all_act = []
 
         def on_episode_step(
             self,
@@ -282,6 +287,8 @@ class TrainingUtils:
             for key, value in all_measures.items():
                 assert not (value < 0).any(), f"{key}_{value}"
                 episode.custom_metrics[key] = value.mean().item()
+
+            self.reset()
 
         def load_agent_x_in_pos_y(self, temp_model, model, x, y):
             temp_model[y].load_state_dict(model[x].state_dict())
