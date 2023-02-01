@@ -19,7 +19,7 @@ from ray.rllib.evaluation import Episode
 from ray.rllib.models import ModelCatalog
 from ray.rllib.utils.typing import PolicyID
 from ray.tune import register_env
-from torch import nn
+from torch import nn, Tensor
 from vmas import make_env
 from vmas.simulator.environment import Environment
 
@@ -294,11 +294,39 @@ class TrainingUtils:
                                     obs_index, pair_index, agent_index
                                 ] = return_dict[key]
                     pair_index += 1
+            self.upload_per_agent_contribution(all_measures, episode)
             for key, value in all_measures.items():
                 assert not (value < 0).any(), f"{key}_{value}"
                 episode.custom_metrics[key] = value.mean().item()
 
             self.reset()
+
+        def upload_per_agent_contribution(
+            self, all_measures: Dict[str, Tensor], episode: Episode
+        ):
+            for key, dists in all_measures.items():
+                per_agent_distances = torch.full(
+                    (self.n_agents, self.n_agents),
+                    -1.0,
+                    dtype=torch.float32,
+                )
+                per_agent_distances.diagonal()[:] = 0
+
+                pair_index = 0
+                for i in range(self.n_agents):
+                    for j in range(self.n_agents):
+                        if j <= i:
+                            continue
+                        pair_distance = dists[:, pair_index].mean()
+                        per_agent_distances[i][j] = pair_distance
+                        per_agent_distances[j][i] = pair_distance
+                        pair_index += 1
+
+                assert not (per_agent_distances < 0).any()
+                for i in range(self.n_agents):
+                    episode.custom_metrics[f"{key}/agent_{i}"] = per_agent_distances[
+                        i
+                    ].sum().item() / (self.n_agents - 1)
 
         def load_agent_x_in_pos_y(self, temp_model, model, x, y):
             temp_model[y].load_state_dict(model[x].state_dict())
