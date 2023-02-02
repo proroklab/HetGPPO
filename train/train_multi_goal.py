@@ -142,16 +142,17 @@ def train(
                 "max_steps": max_episode_steps,
                 # Env specific
                 "scenario_config": {
-                    "n_agents": 2,
-                    "same_goal": True,
+                    "n_agents": 4,
+                    "same_goal": 4,
                 },
             },
             "evaluation_interval": 10,
-            "evaluation_duration": 1,
+            "evaluation_duration": 3,
             "evaluation_num_workers": 1,
             "evaluation_parallel_to_training": False,
             "evaluation_config": {
                 "num_envs_per_worker": 1,
+                # "explore": False,
                 "env_config": {
                     "num_envs": 1,
                 },
@@ -183,7 +184,7 @@ if __name__ == "__main__":
         notes="",
         # Model important
         share_observations=False,
-        heterogeneous=False,
+        heterogeneous=True,
         # Other model
         centralised_critic=False,
         use_mlp=False,
