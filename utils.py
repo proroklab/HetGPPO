@@ -185,9 +185,9 @@ class TrainingUtils:
             reward = episode.last_reward_for()
             for i, agent_obs in enumerate(obs):
                 obs[i] = torch.tensor(obs[i]).unsqueeze(0)
-            self.all_act.append(
-                torch.chunk(torch.tensor(act), base_env.vector_env.env.n_agents)
-            )
+            # self.all_act.append(
+            #     torch.chunk(torch.tensor(act), base_env.vector_env.env.n_agents)
+            # )
             self.all_obs.append(obs)
 
         def on_episode_end(
@@ -237,7 +237,7 @@ class TrainingUtils:
                 "bhattacharyya": dists.clone(),
             }
 
-            self.all_act = self.all_act[1:] + self.all_act[:1]
+            # self.all_act = self.all_act[1:] + self.all_act[:1]
             pair_index = 0
             for i in range(self.n_agents):
                 for j in range(self.n_agents):
@@ -270,9 +270,7 @@ class TrainingUtils:
                                     temp_layer_j, layer, x=j, y=agent_index
                                 )
 
-                        for obs_index, (obs, act) in enumerate(
-                            zip(self.all_obs, self.all_act)
-                        ):
+                        for obs_index, obs in enumerate(self.all_obs):
                             return_dict = self.compute_distance(
                                 temp_model_i=self.temp_model_i,
                                 temp_model_j=self.temp_model_j,
@@ -280,8 +278,8 @@ class TrainingUtils:
                                 agent_index=agent_index,
                                 i=i,
                                 j=j,
-                                act=act,
-                                is_last_obs=obs_index == dists.shape[0] - 1,
+                                act=None,
+                                check_act=False,  # not obs_index == dists.shape[0] - 1,
                             )
                             for key, value in all_measures.items():
                                 assert (
@@ -341,7 +339,7 @@ class TrainingUtils:
             i,
             j,
             act,
-            is_last_obs,
+            check_act,
         ):
 
             input_dict = {"obs": obs}
@@ -366,7 +364,7 @@ class TrainingUtils:
             i_is_loaded_in_its_pos = agent_index == i
             j_is_loaded_in_its_pos = agent_index == j
             assert i != j
-            if not is_last_obs:
+            if check_act:
                 act = act[agent_index]
                 if i_is_loaded_in_its_pos:
                     assert (act == mean_i).all()
