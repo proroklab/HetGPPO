@@ -235,6 +235,7 @@ class TrainingUtils:
                 "kl_sym": dists.clone(),
                 "hellinger": dists.clone(),
                 "bhattacharyya": dists.clone(),
+                "balch": dists.clone(),
             }
 
             # self.all_act = self.all_act[1:] + self.all_act[:1]
@@ -292,16 +293,20 @@ class TrainingUtils:
                                     obs_index, pair_index, agent_index
                                 ] = return_dict[key]
                     pair_index += 1
-            self.upload_per_agent_contribution(all_measures, episode)
+
+            all_measures_agent_matrix = self.get_distance_matrix(all_measures)
+            self.upload_per_agent_contribution(all_measures_agent_matrix, episode)
+            self.compute_hierarchical_social_entropy(all_measures_agent_matrix, episode)
             for key, value in all_measures.items():
                 assert not (value < 0).any(), f"{key}_{value}"
-                episode.custom_metrics[key] = value.mean().item()
+                episode.custom_metrics[f"mine/{key}"] = value.mean().item()
 
             self.reset()
 
-        def upload_per_agent_contribution(
-            self, all_measures: Dict[str, Tensor], episode: Episode
-        ):
+        def get_distance_matrix(
+            self, all_measures: Dict[str, Tensor]
+        ) -> Dict[str, Tensor]:
+            all_measures_agent_matrix = {}
             for key, dists in all_measures.items():
                 per_agent_distances = torch.full(
                     (self.n_agents, self.n_agents),
@@ -319,12 +324,77 @@ class TrainingUtils:
                         per_agent_distances[i][j] = pair_distance
                         per_agent_distances[j][i] = pair_distance
                         pair_index += 1
-
                 assert not (per_agent_distances < 0).any()
+                all_measures_agent_matrix[key] = per_agent_distances
+            return all_measures_agent_matrix
+
+        def upload_per_agent_contribution(self, all_measures_agent_matrix, episode):
+            for key, agent_matrix in all_measures_agent_matrix.items():
                 for i in range(self.n_agents):
-                    episode.custom_metrics[f"{key}/agent_{i}"] = per_agent_distances[
+                    episode.custom_metrics[f"{key}/agent_{i}"] = agent_matrix[
                         i
                     ].sum().item() / (self.n_agents - 1)
+
+        def compute_hierarchical_social_entropy(
+            self, all_measures_agent_matrix, episode
+        ):
+            for metric_name, agent_matrix in all_measures_agent_matrix.items():
+                distances = []
+                for i in range(self.n_agents):
+                    for j in range(self.n_agents):
+                        if j <= i:
+                            continue
+                        distances.append(({i, j}, agent_matrix[i, j].item()))
+                distances.sort(key=lambda e: e[1])
+                intervals = []
+                saved = 0
+                for i in range(len(distances)):
+                    intervals.append(distances[i][1] - saved)
+                    saved = distances[i][1]
+
+                hierarchical_social_ent = 0.0
+                hs = [0.0] + [dist[1] for dist in distances[:-1]]
+
+                for interval, h in zip(intervals, hs):
+                    hierarchical_social_ent += interval * self.compute_social_entropy(
+                        h, agent_matrix
+                    )
+                assert hierarchical_social_ent >= 0
+                episode.custom_metrics[f"hse/{metric_name}"] = hierarchical_social_ent
+
+        def compute_social_entropy(self, h, agent_matrix):
+            clusters = self.cluster(h, agent_matrix)
+            total_elements = np.array([len(cluster) for cluster in clusters]).sum()
+            ps = [len(cluster) / total_elements for cluster in clusters]
+            social_entropy = -np.array([p * np.log2(p) for p in ps]).sum()
+            return social_entropy
+
+        def cluster(self, h, agent_matrix):
+            # Diametric clustering
+            clusters = [{i} for i in range(self.n_agents)]
+            for i, cluster in enumerate(clusters):
+                for j in range(self.n_agents):
+                    if i == j:
+                        continue
+                    can_add = True
+                    for k in cluster:
+                        if agent_matrix[k, j].item() > h:
+                            can_add = False
+                            break
+                    if can_add:
+                        cluster.add(j)
+
+            # Remove duplicate clusters
+            clusters = [set(item) for item in set(frozenset(item) for item in clusters)]
+
+            # Remove subsets (should not be used)
+            final_clusters = copy.deepcopy(clusters)
+            for i, c1 in enumerate(clusters):
+                for j, c2 in enumerate(clusters):
+                    if i != j and c1.issuperset(c2) and c2 in final_clusters:
+                        final_clusters.remove(c2)
+            assert final_clusters == clusters, "Superset check should be useless"
+            return final_clusters
 
         def load_agent_x_in_pos_y(self, temp_model, model, x, y):
             temp_model[y].load_state_dict(model[x].state_dict())
@@ -376,19 +446,14 @@ class TrainingUtils:
 
             return_value = {}
             for name, distance in zip(
-                [
-                    "wasserstein",
-                    "kl",
-                    "kl_sym",
-                    "hellinger",
-                    "bhattacharyya",
-                ],
+                ["wasserstein", "kl", "kl_sym", "hellinger", "bhattacharyya", "balch"],
                 [
                     wasserstein_distance,
                     kl_divergence,
                     kl_symmetric,
                     hellinger_distance,
                     bhattacharyya_distance,
+                    balch,
                 ],
             ):
                 distances = []

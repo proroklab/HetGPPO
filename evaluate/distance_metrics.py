@@ -125,6 +125,10 @@ def bhattacharyya_distance(mu1, sigma1, mu2, sigma2):
     return d
 
 
+def balch(mu, sigma, mu1, sigma1):
+    return np.abs(mu - mu1).item()
+
+
 if __name__ == "__main__":
 
     for j in range(1, 25):
