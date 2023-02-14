@@ -11,7 +11,6 @@ from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.utils.annotations import override
 from torch import Tensor
 from torch import nn
-from torch.nn import Linear
 from torch_geometric.nn import MessagePassing, GINEConv, GraphConv, GATv2Conv
 from torch_geometric.transforms import BaseTransform
 
@@ -229,60 +228,35 @@ class MLP(nn.Module):
 class MatPosConv(MessagePassing):
     propagate_type = {"x": Tensor, "edge_attr": Tensor}
 
-    def __init__(self, in_dim, out_dim, edge_features, edge_embedding, **cfg):
+    def __init__(self, in_dim, out_dim, edge_features, **cfg):
         super().__init__(aggr=cfg["aggr"])
 
         self.in_dim = in_dim
         self.out_dim = out_dim
         self.edge_features = edge_features
-        self.edge_embedding = edge_embedding
         self.activation_fn = get_activation_fn(cfg["activation_fn"])
 
-        self.edge_encoder = nn.Sequential(
-            torch.nn.Linear(self.edge_features, 32),
-            self.activation_fn(),
-            torch.nn.Linear(32, self.edge_embedding),
-        )
         self.message_encoder = nn.Sequential(
-            torch.nn.Linear(self.in_dim + self.edge_embedding, 128),
+            torch.nn.Linear(self.in_dim + self.edge_features, self.out_dim),
             self.activation_fn(),
-            torch.nn.Linear(128, self.out_dim),
+            torch.nn.Linear(self.out_dim, self.out_dim),
         )
-
-        self.lin_agg = Linear(self.out_dim, self.out_dim)
-        # self.lin_node = Linear(self.in_dim, self.out_dim, bias=False)
-
-        self.reset_parameters()
 
     def forward(self, x: Tensor, edge_index: Tensor, edge_attr: Tensor) -> Tensor:
-        edge_attr: Tensor = self.edge_encoder(edge_attr)
         out = self.propagate(
             edge_index,
             x=x,
             edge_attr=edge_attr,
         )
-        out = self.lin_agg(out)
-        # x = self.lin_node(x)
-        # out += x
         return out
 
     def message(self, x_i: Tensor, x_j: Tensor, edge_attr: Tensor) -> Tensor:
         msg = self.message_encoder(torch.cat([x_j, edge_attr], dim=-1))
         return msg
 
-    def reset_parameters(self):
-        self.lin_agg.reset_parameters()
-        # self.lin_node.reset_parameters()
-        for layer in self.edge_encoder:
-            if hasattr(layer, "reset_parameters"):
-                layer.reset_parameters()
-        for layer in self.message_encoder:
-            if hasattr(layer, "reset_parameters"):
-                layer.reset_parameters()
-
 
 class GNN(nn.Module):
-    def __init__(self, in_dim, out_dim, edge_features, edge_embedding, **cfg):
+    def __init__(self, in_dim, out_dim, edge_features, **cfg):
         super().__init__()
 
         gnn_types = {"GraphConv", "GATv2Conv", "GINEConv", "MatPosConv"}
@@ -330,13 +304,10 @@ class GNN(nn.Module):
                 self.in_dim,
                 self.out_dim,
                 edge_features=self.edge_features,
-                edge_embedding=edge_embedding,
                 **cfg,
             )
         else:
             assert False
-
-        self.reset_parameters()
 
     def forward(self, x, edge_index, edge_attr):
         if self.gnn_type == "GraphConv":
@@ -351,9 +322,6 @@ class GNN(nn.Module):
             assert False
 
         return out
-
-    def reset_parameters(self):
-        self.gnn.reset_parameters()
 
 
 class GPPOBranch(nn.Module):
@@ -382,9 +350,7 @@ class GPPOBranch(nn.Module):
         self.edge_index = edge_index
         self.comm_radius = comm_radius_processed
 
-        self.node_embedding = 64
-        self.edge_embedding = 32
-        self.gnn_embedding = 128
+        self.hidden_size = 128
 
         self.activation_fn = get_activation_fn(cfg["activation_fn"])
 
@@ -392,41 +358,20 @@ class GPPOBranch(nn.Module):
         self.hetero_gnns = cfg["heterogeneous"]
         self.hetero_decoders = cfg["heterogeneous"]
 
-        self.encoders = nn.ModuleList(
-            [
-                nn.Sequential(
-                    torch.nn.Linear(self.in_features, 32),
-                    self.activation_fn(),
-                    torch.nn.Linear(32, 64),
-                    self.activation_fn(),
-                    torch.nn.Linear(64, self.node_embedding),
-                )
-                for _ in range(self.n_agents if self.hetero_encoders else 1)
-            ]
-        )
-
-        self.local_nns = nn.ModuleList(
-            [
-                nn.Sequential(
-                    torch.nn.Linear(self.in_features, 64),
-                    self.activation_fn(),
-                    torch.nn.Linear(64, 128),
-                    self.activation_fn(),
-                    torch.nn.Linear(128, self.gnn_embedding),
-                )
-                for _ in range(self.n_agents if self.hetero_encoders else 1)
-            ]
-        )
-
         if self.centralised:
+            # Will not get edge features
             self.centralised_mlps = nn.ModuleList(
                 [
                     nn.Sequential(
-                        torch.nn.Linear(self.node_embedding * self.n_agents, 256),
+                        torch.nn.Linear(
+                            self.in_features * self.n_agents,
+                            256,
+                        ),
                         self.activation_fn(),
-                        torch.nn.Linear(256, 256),
-                        self.activation_fn(),
-                        torch.nn.Linear(256, self.gnn_embedding * self.n_agents),
+                        torch.nn.Linear(
+                            256,
+                            self.hidden_size * self.n_agents,
+                        ),
                     )
                     for _ in range(self.n_agents if self.hetero_gnns else 1)
                 ]
@@ -436,10 +381,9 @@ class GPPOBranch(nn.Module):
             self.gnns = nn.ModuleList(
                 [
                     GNN(
-                        in_dim=self.node_embedding,
-                        out_dim=self.gnn_embedding,
+                        in_dim=self.in_features,
+                        out_dim=self.hidden_size,
                         edge_features=self.edge_features,
-                        edge_embedding=self.edge_embedding,
                         **cfg,
                     )
                     for _ in range(self.n_agents if self.hetero_gnns else 1)
@@ -450,11 +394,12 @@ class GPPOBranch(nn.Module):
         self.decoders = nn.ModuleList(
             [
                 nn.Sequential(
-                    torch.nn.Linear(self.gnn_embedding, 128),
+                    torch.nn.Linear(
+                        self.in_features + self.hidden_size, self.hidden_size
+                    ),
                     self.activation_fn(),
-                    torch.nn.Linear(128, 128),
+                    torch.nn.Linear(self.hidden_size, self.hidden_size),
                     self.activation_fn(),
-                    torch.nn.Linear(128, self.gnn_embedding),
                 )
                 for _ in range(self.n_agents if self.hetero_decoders else 1)
             ]
@@ -463,27 +408,16 @@ class GPPOBranch(nn.Module):
         self.heads = nn.ModuleList(
             [
                 nn.Sequential(
-                    torch.nn.LayerNorm(self.gnn_embedding),
-                    torch.nn.Linear(self.gnn_embedding, 64),
-                    self.activation_fn(),
-                    torch.nn.Linear(64, 32),
-                    self.activation_fn(),
-                    torch.nn.Linear(32, self.out_features),
+                    torch.nn.Linear(self.hidden_size, self.out_features),
                 )
                 for _ in range(self.n_agents if self.hetero_decoders else 1)
             ]
         )
-
         if self.double_output:
             self.heads2 = nn.ModuleList(
                 [
                     nn.Sequential(
-                        torch.nn.LayerNorm(self.gnn_embedding),
-                        torch.nn.Linear(self.gnn_embedding, 64),
-                        self.activation_fn(),
-                        torch.nn.Linear(64, 32),
-                        self.activation_fn(),
-                        torch.nn.Linear(32, self.out_features2),
+                        torch.nn.Linear(self.hidden_size, self.out_features2),
                     )
                     for _ in range(self.n_agents if self.hetero_decoders else 1)
                 ]
@@ -496,44 +430,31 @@ class GPPOBranch(nn.Module):
         if self.edge_index is not None:
             self.edge_index = self.edge_index.to(device)
 
-        if self.hetero_encoders:
-            node_enc = torch.stack(
-                [encoder(obs[:, i]) for i, encoder in enumerate(self.encoders)],
-                dim=1,
-            )
-            local_enc = torch.stack(
-                [local_nn(obs[:, i]) for i, local_nn in enumerate(self.local_nns)],
-                dim=1,
-            )
-        else:
-            node_enc = self.encoders[0](obs)
-            local_enc = self.local_nns[0](obs)
-
         if self.centralised:
-            gnn_enc = node_enc.view(batch_size, self.n_agents * self.node_embedding)
+            embedding = obs.view(batch_size, self.n_agents * self.in_features)
 
             if self.hetero_gnns:
-                gnn_enc = torch.stack(
+                embedding = torch.stack(
                     [
-                        centralised_mlp(gnn_enc).view(
+                        centralised_mlp(embedding).view(
                             batch_size,
                             self.n_agents,
-                            self.gnn_embedding,
+                            self.hidden_size,
                         )[:, i]
                         for i, centralised_mlp in enumerate(self.centralised_mlps)
                     ],
                     dim=1,
                 )
             else:
-                gnn_enc = self.centralised_mlps[0](gnn_enc).view(
+                embedding = self.centralised_mlps[0](embedding).view(
                     batch_size,
                     self.n_agents,
-                    self.gnn_embedding,
+                    self.hidden_size,
                 )
 
         else:
             graph = batch_from_rllib_to_ptg(
-                x=node_enc,
+                x=obs,
                 pos=pos,
                 vel=vel,
                 edge_index=self.edge_index,
@@ -541,12 +462,12 @@ class GPPOBranch(nn.Module):
             )
 
             if self.hetero_gnns:
-                gnn_enc = torch.stack(
+                embedding = torch.stack(
                     [
                         gnn(graph.x, graph.edge_index, graph.edge_attr).view(
                             batch_size,
                             self.n_agents,
-                            self.gnn_embedding,
+                            self.hidden_size,
                         )[:, i]
                         for i, gnn in enumerate(self.gnns)
                     ],
@@ -554,40 +475,37 @@ class GPPOBranch(nn.Module):
                 )
 
             else:
-                gnn_enc = self.gnns[0](
+                embedding = self.gnns[0](
                     graph.x,
                     graph.edge_index,
                     graph.edge_attr,
-                ).view(batch_size, self.n_agents, self.gnn_embedding)
+                ).view(batch_size, self.n_agents, self.hidden_size)
 
         if self.hetero_decoders:
-            gnn_enc = torch.stack(
-                [decoder(gnn_enc[:, i]) for i, decoder in enumerate(self.decoders)],
+            embedding = torch.stack(
+                [
+                    decoder(torch.cat([obs[:, i], embedding[:, i]], dim=-1))
+                    for i, decoder in enumerate(self.decoders)
+                ],
                 dim=1,
             )
         else:
-            gnn_enc = self.decoders[0](gnn_enc)
+            embedding = self.decoders[0](torch.cat([obs, embedding], dim=-1))
 
         if self.hetero_decoders:
             out = torch.stack(
-                [
-                    head(local_enc[:, i] + gnn_enc[:, i])
-                    for i, head in enumerate(self.heads)
-                ],
+                [head(embedding[:, i]) for i, head in enumerate(self.heads)],
                 dim=1,
             )
             if self.double_output:
                 out2 = torch.stack(
-                    [
-                        head2(local_enc[:, i] + gnn_enc[:, i])
-                        for i, head2 in enumerate(self.heads2)
-                    ],
+                    [head2(embedding[:, i]) for i, head2 in enumerate(self.heads2)],
                     dim=1,
                 )
         else:
-            out = self.heads[0](local_enc + gnn_enc)
+            out = self.heads[0](embedding)
             if self.double_output:
-                out2 = self.heads2[0](local_enc + gnn_enc)
+                out2 = self.heads2[0](embedding)
 
         return out, (out2 if self.double_output else None)
 
