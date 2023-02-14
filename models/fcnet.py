@@ -1,6 +1,8 @@
 #  Copyright (c) 2022-2023.
 #  ProrokLab (https://www.proroklab.org/)
 #  All rights reserved.
+from typing import Sequence
+
 import gym
 import numpy as np
 from ray.rllib.models import ModelV2
@@ -27,16 +29,30 @@ class MyFullyConnectedNetwork(TorchModelV2, nn.Module):
             self, obs_space, action_space, num_outputs, model_config, name
         )
         nn.Module.__init__(self)
-
         self.n_agents = len(obs_space.original_space)
         self.outputs_per_agent = num_outputs // self.n_agents
         self.trainer = cfg["trainer"]
         self.heterogeneous = cfg["heterogeneous"]
+        self.pos_dim = cfg["pos_dim"]
+        self.pos_start = cfg["pos_start"]
+        self.vel_start = cfg["vel_start"]
+        self.vel_dim = cfg["vel_dim"]
+        self.use_beta = cfg["use_beta"]
+        self.add_agent_index = cfg["add_agent_index"]
         self.use_beta = False
+
+        assert not cfg["share_observations"]
+
+        self.obs_shape = obs_space.original_space[0].shape[0]
+        # Remove position
+        self.obs_shape -= self.pos_dim
+        if self.add_agent_index:
+            self.obs_shape += 1
+
         self.agent_networks = nn.ModuleList(
             [
                 MyFullyConnectedNetworkInner(
-                    obs_space.original_space[i],
+                    self.obs_shape,
                     self.outputs_per_agent,
                     model_config,
                 )
@@ -52,7 +68,36 @@ class MyFullyConnectedNetwork(TorchModelV2, nn.Module):
         seq_lens: TensorType,
     ) -> (TensorType, List[TensorType]):
         batch_size = input_dict["obs"][0].shape[0]
+        device = input_dict["obs"][0].device
+
         obs = torch.stack(input_dict["obs"], dim=1)
+        if self.add_agent_index:
+            agent_index = (
+                torch.arange(self.n_agents, device=device)
+                .repeat(batch_size, 1)
+                .unsqueeze(-1)
+            )
+            obs = torch.cat((obs, agent_index), dim=-1)
+        pos = (
+            obs[..., self.pos_start : self.pos_start + self.pos_dim]
+            if self.pos_dim > 0
+            else None
+        )
+        vel = (
+            obs[..., self.vel_start : self.vel_start + self.vel_dim]
+            if self.vel_dim > 0
+            else None
+        )
+        obs_no_pos = torch.cat(
+            [
+                obs[..., : self.pos_start],
+                obs[..., self.pos_start + self.pos_dim :],
+            ],
+            dim=-1,
+        ).view(
+            batch_size, self.n_agents, self.obs_shape
+        )  # This acts like an assertion
+        obs = obs_no_pos
 
         if self.heterogeneous:
             logits = torch.stack(
@@ -98,7 +143,7 @@ class MyFullyConnectedNetworkInner(nn.Module):
 
     def __init__(
         self,
-        obs_space: gym.spaces.Space,
+        obs_shape: Sequence[int],
         num_outputs: int,
         model_config: ModelConfigDict,
     ):
@@ -123,7 +168,7 @@ class MyFullyConnectedNetworkInner(nn.Module):
             num_outputs = num_outputs // 2
 
         layers = []
-        prev_layer_size = int(np.product(obs_space.shape))
+        prev_layer_size = int(np.product(obs_shape))
         self._logits = None
 
         # Create layers 0 to second-last.
@@ -171,9 +216,7 @@ class MyFullyConnectedNetworkInner(nn.Module):
                     activation_fn=None,
                 )
             else:
-                self.num_outputs = ([int(np.product(obs_space.shape))] + hiddens[-1:])[
-                    -1
-                ]
+                self.num_outputs = ([int(np.product(obs_shape))] + hiddens[-1:])[-1]
 
         # Layer to add the log std vars to the state-dependent means.
         if self.free_log_std and self._logits:
@@ -184,7 +227,7 @@ class MyFullyConnectedNetworkInner(nn.Module):
         self._value_branch_separate = None
         if not self.vf_share_layers:
             # Build a parallel set of hidden layers for the value net.
-            prev_vf_layer_size = int(np.product(obs_space.shape))
+            prev_vf_layer_size = int(np.product(obs_shape))
             vf_layers = []
             for size in hiddens:
                 vf_layers.append(
