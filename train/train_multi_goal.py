@@ -17,8 +17,8 @@ ON_MAC = False
 save = PPOTrainer
 
 train_batch_size = 60000 if not ON_MAC else 200  # Jan 32768
-num_workers = 4 if not ON_MAC else 0  # jan 4
-num_envs_per_worker = 150 if not ON_MAC else 1  # Jan 32
+num_workers = 10 if not ON_MAC else 0  # jan 4
+num_envs_per_worker = 60 if not ON_MAC else 1  # Jan 32
 rollout_fragment_length = (
     train_batch_size
     if ON_MAC
@@ -28,7 +28,7 @@ scenario_name = "multi_goal"
 # model_name = "MyFullyConnectedNetwork"
 model_name = "GPPO"
 
-n_agents = 10
+n_agents = 6
 n_goals = n_agents // 2
 split_goals = True
 
@@ -84,7 +84,7 @@ def train(
             )
         ],
         local_dir=str(PathUtils.scratch_dir / "ray_results" / scenario_name),
-        stop={"training_iteration": 500},
+        stop={"training_iteration": 300},
         restore=str(checkpoint_path) if restore else None,
         config={
             "seed": seed,
@@ -151,7 +151,7 @@ def train(
             },
             "evaluation_interval": 10,
             "evaluation_duration": 3,
-            "evaluation_num_workers": 1,
+            "evaluation_num_workers": 2,
             "evaluation_parallel_to_training": False,
             "evaluation_config": {
                 "num_envs_per_worker": 1,
@@ -180,22 +180,22 @@ def train(
 
 if __name__ == "__main__":
     TrainingUtils.init_ray(scenario_name=scenario_name, local_mode=ON_MAC)
-
-    train(
-        seed=0,
-        restore=False,
-        notes="",
-        # Model important
-        share_observations=False,
-        heterogeneous=True,
-        # Other model
-        share_action_value=True,
-        centralised_critic=False,
-        use_mlp=False,
-        add_agent_index=False,
-        aggr="add",
-        topology_type="full",
-        # Env
-        max_episode_steps=100,
-        continuous_actions=True,
-    )
+    for seed in [2, 3, 4, 5]:
+        train(
+            seed=seed,
+            restore=False,
+            notes="",
+            # Model important
+            share_observations=False,
+            heterogeneous=True,
+            # Other model
+            share_action_value=True,
+            centralised_critic=False,
+            use_mlp=False,
+            add_agent_index=False,
+            aggr="add",
+            topology_type="full",
+            # Env
+            max_episode_steps=100,
+            continuous_actions=True,
+        )
