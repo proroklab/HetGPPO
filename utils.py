@@ -334,6 +334,12 @@ class TrainingUtils:
                     episode.custom_metrics[f"{key}/agent_{i}"] = agent_matrix[
                         i
                     ].sum().item() / (self.n_agents - 1)
+                    for j in range(self.n_agents):
+                        if j <= i:
+                            continue
+                        episode.custom_metrics[f"{key}/agent_{i}{j}"] = agent_matrix[
+                            i, j
+                        ].item()
 
         def compute_hierarchical_social_entropy(
             self, all_measures_agent_matrix, episode
