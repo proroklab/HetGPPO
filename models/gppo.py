@@ -59,7 +59,7 @@ def get_edge_index_from_topology(topology_type: str, n_agents: int):
         index = 0
         for i in range(n_agents):
             for j in range(n_agents):
-                edge_index[:, index] = torch.Tensor([i, j])
+                edge_index[:, index] = torch.Tensor([j, i])
                 index += 1
         assert index == n_agents**2
     # Connected in a ring
