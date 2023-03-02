@@ -28,9 +28,9 @@ scenario_name = "multi_goal"
 # model_name = "MyFullyConnectedNetwork"
 model_name = "GPPO"
 
-n_agents = 6
-n_goals = n_agents // 2
-split_goals = True
+n_agents = 8
+n_goals = 1
+split_goals = False
 
 
 def train(
@@ -180,7 +180,7 @@ def train(
 
 if __name__ == "__main__":
     TrainingUtils.init_ray(scenario_name=scenario_name, local_mode=ON_MAC)
-    for seed in [2, 3, 4, 5]:
+    for seed in [1, 2, 3, 4]:
         train(
             seed=seed,
             restore=False,

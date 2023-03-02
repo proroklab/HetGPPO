@@ -82,7 +82,7 @@ def train(
             )
         ],
         local_dir=str(PathUtils.scratch_dir / "ray_results" / scenario_name),
-        stop={"training_iteration": 1000},
+        stop={"training_iteration": 600},
         restore=str(checkpoint_path) if restore else None,
         config={
             "seed": seed,
@@ -155,13 +155,13 @@ def train(
                     "mass_position": 0.75,
                     "max_speed_1": None,  # 0.05
                     "all_passed_rot": True,
-                    "obs_noise": 0,
+                    "obs_noise": 0.15,
                     "use_controller": False,
                 },
             },
             "evaluation_interval": 20,
             "evaluation_duration": 3,
-            "evaluation_num_workers": 2,
+            "evaluation_num_workers": 1,
             "evaluation_parallel_to_training": False,
             "evaluation_config": {
                 "num_envs_per_worker": 1,
@@ -190,7 +190,7 @@ def train(
 if __name__ == "__main__":
     TrainingUtils.init_ray(scenario_name=scenario_name, local_mode=ON_MAC)
 
-    for seed in [3]:
+    for seed in [0, 1, 2]:
         train(
             seed=seed,
             restore=False,

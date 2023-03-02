@@ -1,4 +1,4 @@
-#  Copyright (c) 2022.
+#  Copyright (c) 2022-2023.
 #  ProrokLab (https://www.proroklab.org/)
 #  All rights reserved.
 
@@ -8,7 +8,6 @@ import pickle
 from ray import tune
 from ray.air.callbacks.wandb import WandbLoggerCallback
 from ray.rllib.algorithms.callbacks import MultiCallbacks
-from ray.rllib.models import MODEL_DEFAULTS
 
 from rllib_differentiable_comms.multi_trainer import MultiPPOTrainer
 from utils import PathUtils, TrainingUtils
@@ -16,8 +15,8 @@ from utils import PathUtils, TrainingUtils
 ON_MAC = False
 
 train_batch_size = 60000 if not ON_MAC else 200  # Jan 32768
-num_workers = 5 if not ON_MAC else 0  # jan 4
-num_envs_per_worker = 50 if not ON_MAC else 1  # Jan 32
+num_workers = 10 if not ON_MAC else 0  # jan 4
+num_envs_per_worker = 20 if not ON_MAC else 1  # Jan 32
 rollout_fragment_length = (
     train_batch_size
     if ON_MAC
@@ -40,13 +39,11 @@ def train(
     continuous_actions,
     seed,
     notes,
+    share_action_value,
 ):
     checkpoint_rel_path = "ray_results/joint/GIPPO/MultiPPOTrainer_joint_9b1c9_00000_0_2022-09-01_10-08-12/checkpoint_000099/checkpoint-99"
     checkpoint_path = PathUtils.scratch_dir / checkpoint_rel_path
     params_path = checkpoint_path.parent.parent / "params.pkl"
-
-    fcnet_model_config = MODEL_DEFAULTS.copy()
-    fcnet_model_config.update({"vf_share_layers": False})
 
     if centralised_critic and not use_mlp:
         if share_observations:
@@ -66,14 +63,11 @@ def train(
         with open(params_path, "rb") as f:
             config = pickle.load(f)
 
+    trainer = MultiPPOTrainer
+    trainer_name = "MultiPPOTrainer" if trainer is MultiPPOTrainer else "PPOTrainer"
     tune.run(
-        MultiPPOTrainer,
+        trainer,
         name=group_name if model_name == "GPPO" else model_name,
-        checkpoint_freq=1,
-        keep_checkpoints_num=2,
-        max_failures=0,
-        checkpoint_at_end=True,
-        checkpoint_score_attr="episode_reward_mean",
         callbacks=[
             WandbLoggerCallback(
                 project=f"{scenario_name}{'_test' if ON_MAC else ''}",
@@ -107,12 +101,14 @@ def train(
             "gamma": 0.99,
             "use_gae": True,
             "use_critic": True,
-            "batch_mode": "truncate_episodes",
+            "grad_clip": 40,
+            "batch_mode": "complete_episodes",
             "model": {
+                "vf_share_layers": share_action_value,
                 "custom_model": model_name,
                 "custom_action_dist": "hom_multi_action",
                 "custom_model_config": {
-                    "activation_fn": "relu",
+                    "activation_fn": "tanh",
                     "share_observations": share_observations,
                     "gnn_type": "MatPosConv",
                     "centralised_critic": centralised_critic,
@@ -126,10 +122,9 @@ def train(
                     "pos_dim": 2,
                     "vel_start": 2,
                     "vel_dim": 2,
-                    "share_action_value": True,
-                }
-                if model_name == "GPPO"
-                else fcnet_model_config,
+                    "share_action_value": share_action_value,
+                    "trainer": trainer_name,
+                },
             },
             "env_config": {
                 "device": "cpu",
@@ -155,10 +150,10 @@ def train(
                     "obs_noise": 0.0,
                 },
             },
-            "evaluation_interval": 100,
-            "evaluation_duration": 1,
-            "evaluation_num_workers": 1,
-            "evaluation_parallel_to_training": True,
+            "evaluation_interval": 50,
+            "evaluation_duration": 3,
+            "evaluation_num_workers": 2,
+            "evaluation_parallel_to_training": False,
             "evaluation_config": {
                 "num_envs_per_worker": 1,
                 "env_config": {
@@ -168,6 +163,7 @@ def train(
                     [
                         TrainingUtils.RenderingCallbacks,
                         TrainingUtils.EvaluationCallbacks,
+                        TrainingUtils.HeterogeneityMeasureCallbacks,
                     ]
                 ),
             },
@@ -184,21 +180,22 @@ def train(
 
 if __name__ == "__main__":
     TrainingUtils.init_ray(scenario_name=scenario_name, local_mode=ON_MAC)
-
-    train(
-        seed=3,
-        restore=False,
-        notes="",
-        # Model important
-        share_observations=True,
-        heterogeneous=False,
-        # Other model
-        centralised_critic=False,
-        use_mlp=False,
-        add_agent_index=False,
-        aggr="add",
-        topology_type="full",
-        # Env
-        max_episode_steps=300,
-        continuous_actions=True,
-    )
+    for seed in [2]:
+        train(
+            seed=seed,
+            restore=False,
+            notes="",
+            # Model important
+            share_observations=True,
+            heterogeneous=True,
+            # Other model
+            share_action_value=True,
+            centralised_critic=False,
+            use_mlp=False,
+            add_agent_index=False,
+            aggr="add",
+            topology_type="full",
+            # Env
+            max_episode_steps=300,
+            continuous_actions=True,
+        )
