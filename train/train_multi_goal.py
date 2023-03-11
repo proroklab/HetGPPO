@@ -16,9 +16,9 @@ from utils import PathUtils, TrainingUtils
 ON_MAC = False
 save = PPOTrainer
 
-train_batch_size = 60000 if not ON_MAC else 200  # Jan 32768
-num_workers = 10 if not ON_MAC else 0  # jan 4
-num_envs_per_worker = 60 if not ON_MAC else 1  # Jan 32
+train_batch_size = 3000 if not ON_MAC else 200  # Jan 32768
+num_workers = 5 if not ON_MAC else 0  # jan 4
+num_envs_per_worker = 6 if not ON_MAC else 1  # Jan 32
 rollout_fragment_length = (
     train_batch_size
     if ON_MAC
@@ -28,7 +28,7 @@ scenario_name = "multi_goal"
 # model_name = "MyFullyConnectedNetwork"
 model_name = "GPPO"
 
-n_agents = 8
+n_agents = 1
 n_goals = 1
 split_goals = False
 
@@ -77,14 +77,14 @@ def train(
         name=group_name if model_name.startswith("GPPO") else model_name,
         callbacks=[
             WandbLoggerCallback(
-                project=f"{scenario_name}{'_test' if ON_MAC else ''}",
+                project=f"{scenario_name}_demo{'_test' if ON_MAC else ''}",
                 api_key_file=str(PathUtils.scratch_dir / "wandb_api_key_file"),
                 group=group_name,
                 notes=notes,
             )
         ],
         local_dir=str(PathUtils.scratch_dir / "ray_results" / scenario_name),
-        stop={"training_iteration": 300},
+        stop={"training_iteration": 100},
         restore=str(checkpoint_path) if restore else None,
         config={
             "seed": seed,
@@ -99,7 +99,7 @@ def train(
             "entropy_coeff": 0,  # 0.01,
             "train_batch_size": train_batch_size,
             "rollout_fragment_length": rollout_fragment_length,
-            "sgd_minibatch_size": 4096 if not ON_MAC else 100,  # jan 2048
+            "sgd_minibatch_size": 100 if not ON_MAC else 100,  # jan 2048
             "num_sgd_iter": 45,  # Jan 30
             "num_gpus": int(os.environ.get("RLLIB_NUM_GPUS", "0")),
             "num_gpus_per_worker": 0,
@@ -149,9 +149,9 @@ def train(
                     "split_goals": split_goals,
                 },
             },
-            "evaluation_interval": 10,
-            "evaluation_duration": 3,
-            "evaluation_num_workers": 2,
+            "evaluation_interval": 1,
+            "evaluation_duration": 1,
+            "evaluation_num_workers": 1,
             "evaluation_parallel_to_training": False,
             "evaluation_config": {
                 "num_envs_per_worker": 1,
@@ -163,7 +163,7 @@ def train(
                     [
                         TrainingUtils.RenderingCallbacks,
                         TrainingUtils.EvaluationCallbacks,
-                        TrainingUtils.HeterogeneityMeasureCallbacks,
+                        # TrainingUtils.HeterogeneityMeasureCallbacks,
                     ]
                 ),
             },
@@ -180,14 +180,14 @@ def train(
 
 if __name__ == "__main__":
     TrainingUtils.init_ray(scenario_name=scenario_name, local_mode=ON_MAC)
-    for seed in [1, 2, 3, 4]:
+    for seed in [0]:
         train(
             seed=seed,
             restore=False,
             notes="",
             # Model important
             share_observations=False,
-            heterogeneous=True,
+            heterogeneous=False,
             # Other model
             share_action_value=True,
             centralised_critic=False,

@@ -9,10 +9,9 @@ from typing import Set, Union, List
 import matplotlib.patches as mpatches
 import matplotlib.ticker as mtick
 import numpy as np
-import tikzplotlib
 from matplotlib import pyplot as plt
 
-from utils import EvaluationUtils, InjectMode, PathUtils
+from utils import EvaluationUtils, InjectMode
 
 
 class ResilencePlottinMode(Enum):
@@ -36,6 +35,8 @@ def evaluate_resilience(
     inject_mode: InjectMode,
     noise_delta: float,
     plotting_mode: ResilencePlottinMode,
+    inject_config_fn,
+    ax,
     compute_also_non_injected: bool = True,
 ):
     """
@@ -49,13 +50,22 @@ def evaluate_resilience(
     :param compute_also_non_injected: Wether to run evaluation of non-injected models as well for comparison
     """
 
-    fig, ax = plt.subplots(figsize=(16, 9))
     rewards_to_plot = []
     labels = []
     x_tick_lkabels = []
-    colors = plt.rcParams["axes.prop_cycle"]()
-    c1 = next(colors)["color"]
-    c2 = next(colors)["color"]
+    colors = [
+        "#377eb8",
+        "#ff7f00",
+        "#4daf4a",
+        "#f781bf",
+        "#a65628",
+        "#984ea3",
+        "#999999",
+        "#e41a1c",
+        "#dede00",
+    ]
+    c1 = colors[0]
+    c2 = colors[1]
     figure_title = None
     figure_name = None
 
@@ -72,6 +82,13 @@ def evaluate_resilience(
             trainer,
             env,
         ) = EvaluationUtils.get_config_trainer_and_env_from_checkpoint(checkpoint_path)
+        (
+            config_injected,
+            trainer_injected,
+            env_injected,
+        ) = EvaluationUtils.get_config_trainer_and_env_from_checkpoint(
+            checkpoint_path, config_update_fn=inject_config_fn
+        )
 
         if figure_title is not None:
             assert (figure_title, figure_name) == EvaluationUtils.get_model_name(
@@ -97,12 +114,13 @@ def evaluate_resilience(
                 render=False,
                 get_obs=False,
                 get_actions=False,
-                trainer=trainer,
-                env=env,
+                trainer=trainer if not inject else trainer_injected,
+                env=env if not inject else env_injected,
                 inject=inject,
                 inject_mode=inject_mode,
                 agents_to_inject=agents_to_inject,
                 noise_delta=noise_delta,
+                use_pickle=True,
             )
             rewards_bef_and_after.append(rewards)
 
@@ -118,6 +136,7 @@ def evaluate_resilience(
                 )
 
                 for pc in rewards_violin["bodies"]:
+
                     pc.set_facecolor(c1 if not inject else c2)
                     # pc.set_edgecolor("black")
                     pc.set_alpha(0.65)
@@ -131,7 +150,7 @@ def evaluate_resilience(
                     inds,
                     medians,
                     marker="o",
-                    color="white",
+                    color=c1 if not inject else c2,
                     s=30,
                     zorder=3,
                     edgecolors="black",
@@ -203,12 +222,7 @@ def evaluate_resilience(
         ncol=2,
     )
 
-    fig.suptitle(figure_title, fontsize=16)
-    ax.set_title(inject_title, fontsize=14)
-
-    save_dir = PathUtils.result_dir / f"{figure_title}/resilience evaluation"
-    name = inject_name
-    plt.savefig(str(save_dir / f"eval_resilience_{name}_{plotting_mode}.pdf"))
+    ax.set_title(figure_title + inject_title)
 
 
 def evaluate_increasing_noise(
@@ -216,9 +230,10 @@ def evaluate_increasing_noise(
     n_episodes_per_model: int,
     agents_to_inject: Set,
     inject_mode: InjectMode,
-    plotting_mode: ResilencePlottinMode,
+    noises: np.ndarray,
+    ax,
 ):
-    noises = np.linspace(0, 2, 50)
+
     rewards = np.zeros(
         (
             len(checkpoint_paths),
@@ -254,6 +269,7 @@ def evaluate_increasing_noise(
                 inject_mode=inject_mode,
                 agents_to_inject=agents_to_inject,
                 noise_delta=noise,
+                use_pickle=True,
             )
 
             len_obs = np.array([len(o) for o in obs])
@@ -262,7 +278,6 @@ def evaluate_increasing_noise(
                 int
             )
 
-    fig, ax = plt.subplots(figsize=(5, 5))
     CB_color_cycle = [
         "#377eb8",
         "#ff7f00",
@@ -283,12 +298,15 @@ def evaluate_increasing_noise(
             env_name,
         ) = EvaluationUtils.get_model_name(trainer.config)
 
-        to_plot = (rewards + 10) / 60
+        # to_plot = (rewards - rewards.min().item()) / (
+        #     rewards.max().item() - rewards.min().item()
+        # )
+        to_plot = rewards
+
         # to_plot = done
 
         mean = to_plot[model_num].mean(1)
         std = to_plot[model_num].std(1)
-        model_title = "HetGPPO" if model_title == "HetGIPPO" else "GPPO"
         (mean_line,) = ax.plot(
             noises, mean, label=model_title, color=CB_color_cycle[model_num]
         )
@@ -302,18 +320,14 @@ def evaluate_increasing_noise(
     ax.set_xlabel("Uniform observation noise")
     ax.set_ylabel("Reward")
     ax.legend()
-
-    tikzplotlib.save(
-        f"trial.tex",
-        textsize=18,
-    )
-    plt.savefig(f"trial.pdf", bbox_inches="tight", pad_inches=0)
-    plt.show()
+    #
+    # tikzplotlib.save(
+    #     f"trial.tex",
+    #     textsize=18,
+    # )
 
 
 if __name__ == "__main__":
-
-    checkpoint_paths = []
 
     for noise_delta in [0.1]:
         for agents_to_inject in [{0, 1}]:

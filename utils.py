@@ -2,6 +2,7 @@
 #  ProrokLab (https://www.proroklab.org/)
 #  All rights reserved.
 import copy
+import hashlib
 import pickle
 import platform
 from enum import Enum
@@ -47,6 +48,7 @@ class PathUtils:
 class InjectMode(Enum):
     ACTION_NOISE = 1
     OBS_NOISE = 2
+    SWITCH_AGENTS = 3
 
     def is_noise(self):
         if self is InjectMode.OBS_NOISE or self is InjectMode.ACTION_NOISE:
@@ -54,12 +56,12 @@ class InjectMode(Enum):
         return False
 
     def is_obs(self):
-        if self is InjectMode.OBS_NOISE:
+        if self is InjectMode.OBS_NOISE or self is InjectMode.SWITCH_AGENTS:
             return True
         return False
 
     def is_action(self):
-        if self is InjectMode.ACTION_NOISE:
+        if self is InjectMode.ACTION_NOISE or self is InjectMode.SWITCH_AGENTS:
             return True
         return False
 
@@ -85,7 +87,7 @@ class TrainingUtils:
     @staticmethod
     def env_creator(config: Dict):
         env = make_env(
-            scenario_name=config["scenario_name"],
+            scenario=config["scenario_name"],
             num_envs=config["num_envs"],
             device=config["device"],
             continuous_actions=config["continuous_actions"],
@@ -142,7 +144,11 @@ class TrainingUtils:
             episode: Episode,
             **kwargs,
         ) -> None:
-            self.frames.append(base_env.vector_env.try_render_at(mode="rgb_array"))
+            self.frames.append(
+                base_env.vector_env.try_render_at(
+                    mode="rgb_array", agent_index_focus=None
+                )
+            )
 
         def on_episode_end(
             self,
@@ -522,6 +528,21 @@ class EvaluationUtils:
         return tuple(observations_new)
 
     @staticmethod
+    def __switch_agents(
+        angents_io: tuple,
+        agent_indices: Set[int],
+    ) -> Tuple:
+        assert len(agent_indices) <= len(angents_io)
+        assert len(agent_indices) == 2
+        agent_indices = list(agent_indices)
+        agents_io_new = list(angents_io)
+
+        agents_io_new[agent_indices[0]] = angents_io[agent_indices[1]]
+        agents_io_new[agent_indices[1]] = angents_io[agent_indices[0]]
+
+        return tuple(agents_io_new)
+
+    @staticmethod
     def get_inject_function(
         inject_mode: InjectMode,
         noise_delta: float,
@@ -537,6 +558,11 @@ class EvaluationUtils:
                 return EvaluationUtils.__inject_noise_in_observation(
                     x, noise_delta=noise_delta, agent_indices=agents_to_inject
                 )
+            elif inject_mode is InjectMode.SWITCH_AGENTS:
+                assert noise_delta == 0
+                return EvaluationUtils.__switch_agents(
+                    x, agent_indices=agents_to_inject
+                )
             else:
                 assert False
 
@@ -544,7 +570,7 @@ class EvaluationUtils:
 
     @staticmethod
     def get_checkpoint_config(checkpoint_path: Union[str, Path]):
-        params_path = Path(checkpoint_path).parent.parent / "params.pkl"
+        params_path = Path(checkpoint_path).parent / "params.pkl"
         with open(params_path, "rb") as f:
             config = pickle.load(f)
         return config
@@ -560,18 +586,29 @@ class EvaluationUtils:
         TrainingUtils.init_ray(scenario_name=scenario_name)
 
         if for_evaluation:
+
+            # Env
             env_config = config["env_config"]
             env_config.update({"num_envs": 1})
 
-            eval_config = {
+            # Scenario
+            # env_config["scenario_config"].update({"mass_position": 0.75})
+
+            # Eval
+            eval_config = config["evaluation_config"]
+            eval_config.update({"callbacks": None})
+
+            config_update = {
                 "in_evaluation": True,
                 "num_workers": 0,
                 "num_gpus": 0,
                 "num_envs_per_worker": 1,
+                "callbacks": None,
                 "env_config": env_config,
+                "evaluation_config": eval_config
                 # "explore": False,
             }
-            config.update(eval_config)
+            config.update(config_update)
 
         if config_update_fn is not None:
             config = config_update_fn(config)
@@ -580,6 +617,7 @@ class EvaluationUtils:
 
         trainer = MultiPPOTrainer(env=scenario_name, config=config)
         trainer.restore(str(checkpoint_path))
+        trainer.start_config = config
         env = TrainingUtils.env_creator(config["env_config"])
         env.seed(config["seed"])
 
@@ -592,12 +630,13 @@ class EvaluationUtils:
         get_obs: bool,
         get_actions: bool,
         trainer: MultiPPOTrainer,
-        action_callback,
         env: VectorEnv,
         inject: bool,
         inject_mode: InjectMode,
         agents_to_inject: Set,
         noise_delta: float,
+        action_callback=None,
+        use_pickle: bool = True,
     ):
         assert (trainer is None) != (action_callback is None)
 
@@ -616,38 +655,35 @@ class EvaluationUtils:
                 env=env,
             )
 
-        # (
-        #     rewards,
-        #     best_gif,
-        #     observations,
-        #     actions,
-        # ) = EvaluationUtils.__get_pickled_rollout(
-        #     n_episodes,
-        #     render,
-        #     get_obs,
-        #     get_actions,
-        #     trainer,
-        #     inject,
-        #     inject_mode,
-        #     agents_to_inject,
-        #     noise_delta,
-        # )
-        #
-        # if rewards is not None:
-        #     print("Loaded from pickle!")
-        #     return (
-        #         rewards,
-        #         best_gif if render else None,
-        #         observations if get_obs else None,
-        #         actions if get_actions else None,
-        #     )
-
-        best_reward = float("-inf")
         best_gif = None
         rewards = []
         observations = []
         actions = []
-        for j in range(n_episodes):
+        if use_pickle and trainer:
+            (
+                rewards,
+                best_gif,
+                observations,
+                actions,
+            ) = EvaluationUtils.__get_pickled_rollout(
+                render,
+                get_obs,
+                get_actions,
+                trainer,
+                inject,
+                inject_mode,
+                agents_to_inject,
+                noise_delta,
+            )
+            (rewards, observations, actions) = EvaluationUtils.__crop_rollout(
+                rewards, observations, actions, get_obs, get_actions, n_episodes
+            )
+            print(f"Loaded from pickle {len(rewards)} episodes!")
+
+        best_reward = max(rewards, default=float("-inf"))
+
+        for j in range(len(rewards), n_episodes):
+            env.seed(j)
             frame_list = []
             observations_this_episode = []
             actions_this_episode = []
@@ -656,7 +692,9 @@ class EvaluationUtils:
             i = 0
             done = False
             if render:
-                frame_list.append(env.try_render_at(mode="rgb_array"))
+                frame_list.append(
+                    env.try_render_at(mode="rgb_array", visualize_when_rgb=True)
+                )
             while not done:
                 i += 1
                 if inject and inject_mode.is_obs():
@@ -680,10 +718,12 @@ class EvaluationUtils:
                 info = infos[0]
                 reward_sum += reward
                 if render:
-                    frame_list.append(env.try_render_at(mode="rgb_array"))
+                    frame_list.append(
+                        env.try_render_at(mode="rgb_array", visualize_when_rgb=True)
+                    )
             print(f"Episode: {j + 1}, total reward: {reward_sum}")
             rewards.append(reward_sum)
-            if reward_sum > best_reward:
+            if reward_sum > best_reward and render:
                 best_reward = reward_sum
                 best_gif = frame_list.copy()
             if get_obs:
@@ -694,22 +734,26 @@ class EvaluationUtils:
             f"Max reward: {np.max(rewards)}\nReward mean: {np.mean(rewards)}\nMin reward: {np.min(rewards)}"
         )
 
-        best_gif = best_gif if render else None
-        observations = observations if get_obs else None
-        actions = actions if get_actions else None
+        if use_pickle and trainer:
+            EvaluationUtils.__store_pickled_rollout(
+                rewards,
+                best_gif,
+                observations,
+                actions,
+                trainer,
+                inject,
+                inject_mode,
+                agents_to_inject,
+                noise_delta,
+            )
 
-        # EvaluationUtils.__store_pickled_rollout(
-        #     rewards,
-        #     best_gif,
-        #     observations,
-        #     actions,
-        #     n_episodes,
-        #     trainer,
-        #     inject,
-        #     inject_mode,
-        #     agents_to_inject,
-        #     noise_delta,
-        # )
+        assert len(rewards) == n_episodes
+        if get_obs:
+            assert len(observations) == n_episodes
+        if get_actions:
+            assert len(actions) == n_episodes
+        if render:
+            assert best_gif
 
         return (
             rewards,
@@ -719,12 +763,31 @@ class EvaluationUtils:
         )
 
     @staticmethod
+    def __crop_rollout(
+        rewards,
+        observations,
+        actions,
+        get_obs: bool,
+        get_actions: bool,
+        n_episodes: int,
+    ):
+        min_len = min(len(rewards), n_episodes)
+        if get_actions:
+            min_len = min(len(actions), min_len)
+        if get_obs:
+            min_len = min(len(observations), min_len)
+        return (
+            rewards[:min_len],
+            observations[:min_len] if get_obs else observations,
+            actions[:min_len] if get_actions else actions,
+        )
+
+    @staticmethod
     def __store_pickled_rollout(
         rewards,
         best_gif,
         observations,
         actions,
-        n_episodes,
         trainer: MultiPPOTrainer,
         inject: bool,
         inject_mode: InjectMode,
@@ -743,9 +806,13 @@ class EvaluationUtils:
             noise_delta=noise_delta,
             inject_mode=inject_mode,
         )
+        hash = hashlib.sha256()
+        hash.update(bytes(str(trainer.start_config), "UTF-8"))
 
-        name = f"{n_episodes}epis_{model_name}_{env_name}" + (
-            "_" + inject_name if inject else ""
+        name = (
+            f"{model_name}_{env_name}"
+            + ("_" + inject_name if inject else "")
+            + f"_{hash.hexdigest()}"
         )
 
         reward_file = PathUtils.rollout_storage / f"rew_{name}.pkl"
@@ -753,17 +820,36 @@ class EvaluationUtils:
         observations_file = PathUtils.rollout_storage / f"obs_{name}.pkl"
         actions_file = PathUtils.rollout_storage / f"acts_{name}.pkl"
 
-        pickle.dump(rewards, open(reward_file, "wb"))
-        if best_gif is not None:
+        (
+            rewards_loaded,
+            best_gif_loaded,
+            observations_loaded,
+            actions_loaded,
+        ) = EvaluationUtils.__get_pickled_rollout(
+            best_gif is not None,
+            len(observations) > 0,
+            len(actions) > 0,
+            trainer,
+            inject,
+            inject_mode,
+            agents_to_inject,
+            noise_delta,
+        )
+        if len(rewards) > len(rewards_loaded):
+            pickle.dump(rewards, open(reward_file, "wb"))
+        if (
+            best_gif is not None
+            and (best_gif_loaded is None or len(rewards_loaded) < len(rewards))
+            and False
+        ):
             pickle.dump(best_gif, open(best_gif_file, "wb"))
-        if observations is not None:
+        if len(observations) > len(observations_loaded):
             pickle.dump(observations, open(observations_file, "wb"))
-        if actions is not None:
+        if len(actions) > len(actions_loaded):
             pickle.dump(actions, open(actions_file, "wb"))
 
     @staticmethod
     def __get_pickled_rollout(
-        n_episodes: int,
         render: bool,
         get_obs: bool,
         get_actions: bool,
@@ -787,34 +873,31 @@ class EvaluationUtils:
             inject_mode=inject_mode,
         )
 
-        name = f"{n_episodes}epis_{model_name}_{env_name}" + (
-            "_" + inject_name if inject else ""
+        hash = hashlib.sha256()
+        hash.update(bytes(str(trainer.start_config), "UTF-8"))
+        name = (
+            f"{model_name}_{env_name}"
+            + ("_" + inject_name if inject else "")
+            + f"_{hash.hexdigest()}"
         )
-
-        rewards = None
-        best_gif = (None,)
-        observations = (None,)
-        actions = (None,)
 
         reward_file = PathUtils.rollout_storage / f"rew_{name}.pkl"
         best_gif_file = PathUtils.rollout_storage / f"gif_{name}.pkl"
         observations_file = PathUtils.rollout_storage / f"obs_{name}.pkl"
         actions_file = PathUtils.rollout_storage / f"acts_{name}.pkl"
 
-        if (
-            (render and not best_gif_file.is_file())
-            or (get_obs and not observations_file.is_file())
-            or (get_actions and not actions_file.is_file())
-        ):
-            return rewards, best_gif, observations, actions
+        best_gif = None
+        rewards = []
+        observations = []
+        actions = []
 
         if reward_file.is_file():
             rewards = pickle.load(open(reward_file, "rb"))
-            if render:
+            if render and best_gif_file.is_file():
                 best_gif = pickle.load(open(best_gif_file, "rb"))
-            if get_obs:
+            if get_obs and observations_file.is_file():
                 observations = pickle.load(open(observations_file, "rb"))
-            if get_actions:
+            if get_actions and actions_file.is_file():
                 actions = pickle.load(open(actions_file, "rb"))
 
         return rewards, best_gif, observations, actions
@@ -829,9 +912,8 @@ class EvaluationUtils:
         # Env
         env_config = config["env_config"]
         scenario_name = env_config["scenario_name"]
-        scenario_config = env_config["scenario_config"]
 
-        model_title = f"{'Het' if is_hetero else ''}{'GIPPO' if is_gippo else 'IPPO'}"
+        model_title = f"{'Het' if is_hetero else ''}{'GPPO' if is_gippo else 'IPPO'}"
         model_name = model_title.lower().replace(" ", "_")
 
         env_title = scenario_name

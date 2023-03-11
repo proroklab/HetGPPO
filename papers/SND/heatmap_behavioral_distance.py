@@ -267,7 +267,7 @@ if __name__ == "__main__":
 
     cbarlabel = "$d(i,j)$"
     cbar = fig.colorbar(im, ax=axs[:], location="right", shrink=0.56, pad=0.01)
-    cbar.ax.set_ylabel(cbarlabel, rotation=-90, va="bottom")
+    cbar.ax.set_ylabel(cbarlabel, rotation=270, va="bottom")
 
     plt.savefig(f"multi_goal_matrix.pdf", bbox_inches="tight", pad_inches=0)
     plt.show()

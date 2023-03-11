@@ -1,4 +1,4 @@
-#  Copyright (c) 2022.
+#  Copyright (c) 2022-2023.
 #  ProrokLab (https://www.proroklab.org/)
 #  All rights reserved.
 
@@ -57,6 +57,7 @@ def train(
     continuous_actions,
     seed,
     notes,
+    share_action_value,
 ):
     checkpoint_rel_path = "ray_results/joint/HetGIPPO/MultiPPOTrainer_joint_654d9_00000_0_2022-08-23_17-26-52/checkpoint_001349/checkpoint-1349"
     checkpoint_path = PathUtils.scratch_dir / checkpoint_rel_path
@@ -83,8 +84,10 @@ def train(
         with open(params_path, "rb") as f:
             config = pickle.load(f)
 
+    trainer = MultiPPOTrainer
+    trainer_name = "MultiPPOTrainer" if trainer is MultiPPOTrainer else "PPOTrainer"
     tune.run(
-        MultiPPOTrainer,
+        trainer,
         name=group_name if model_name.startswith("GPPO") else model_name,
         checkpoint_freq=1,
         keep_checkpoints_num=2,
@@ -123,12 +126,16 @@ def train(
             "gamma": 0.99,
             "use_gae": True,
             "use_critic": True,
+            "grad_clip": 40,
             "batch_mode": "complete_episodes",
             "model": {
+                "vf_share_layers": share_action_value,
                 "custom_model": model_name,
-                "custom_action_dist": "hom_multi_action",
+                "custom_action_dist": (
+                    "hom_multi_action" if trainer is MultiPPOTrainer else None
+                ),
                 "custom_model_config": {
-                    "activation_fn": "relu",
+                    "activation_fn": "tanh",
                     "share_observations": share_observations,
                     "gnn_type": "MatPosConv",
                     "centralised_critic": centralised_critic,
@@ -142,10 +149,9 @@ def train(
                     "pos_dim": 2,
                     "vel_start": 2,
                     "vel_dim": 2,
-                    "share_action_value": True,
-                }
-                if model_name.startswith("GPPO")
-                else fcnet_model_config,
+                    "share_action_value": share_action_value,
+                    "trainer": trainer_name,
+                },
             },
             "env_config": {
                 "device": "cpu",
@@ -157,23 +163,25 @@ def train(
                 "scenario_config": {
                     "u_range": 0.5,
                     "a_range": 1,
-                    "obs_noise": 0.05,
+                    "obs_noise": 0.00,
                     "dt_delay": 0,
                     "linear_friction": 0.1,
                     "min_input_norm": 0.08,
                     "box_agents": False,
                     "pos_shaping_factor": 1,
-                    "final_reward": 0.005,
+                    "final_reward": 100,
                     "agent_collision_penalty": 0,
                     "obstacle_collision_penalty": 0,
                     "passage_collision_penalty": 0,
                     "energy_rew_coeff": 0,
+                    "mirror_passage": True,
+                    "done_on_completion": True,
                 },
             },
-            "evaluation_interval": 50,
+            "evaluation_interval": 20,
             "evaluation_duration": 1,
             "evaluation_num_workers": 1,
-            "evaluation_parallel_to_training": True,
+            "evaluation_parallel_to_training": False,
             "evaluation_config": {
                 "num_envs_per_worker": 1,
                 "env_config": {
@@ -182,6 +190,7 @@ def train(
                 "callbacks": MultiCallbacks(
                     [
                         TrainingUtils.RenderingCallbacks,
+                        TrainingUtils.HeterogeneityMeasureCallbacks,
                     ]
                 ),
             },
@@ -195,18 +204,19 @@ def train(
 if __name__ == "__main__":
     TrainingUtils.init_ray(scenario_name=scenario_name, local_mode=ON_MAC)
 
-    for seed in [1]:
+    for seed in [2]:
         train(
             seed=seed,
             restore=False,
             notes="",
             # Model important
             share_observations=True,
-            heterogeneous=False,
+            heterogeneous=True,
             # Other model
+            share_action_value=True,
             centralised_critic=False,
             use_mlp=False,
-            add_agent_index=True,
+            add_agent_index=False,
             aggr="add",
             topology_type="full",
             # Env
