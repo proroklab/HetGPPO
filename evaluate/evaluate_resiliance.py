@@ -289,42 +289,41 @@ def evaluate_increasing_noise(
         "#e41a1c",
         "#dede00",
     ]
-    ax.grid()
-    for model_num, trainer in enumerate(trainers):
-        (
-            model_title,
-            model_name,
-            env_title,
-            env_name,
-        ) = EvaluationUtils.get_model_name(trainer.config)
+    if ax is not None:
+        ax.grid()
+        for model_num, trainer in enumerate(trainers):
+            (
+                model_title,
+                model_name,
+                env_title,
+                env_name,
+            ) = EvaluationUtils.get_model_name(trainer.config)
 
-        # to_plot = (rewards - rewards.min().item()) / (
-        #     rewards.max().item() - rewards.min().item()
-        # )
-        to_plot = rewards
+            to_plot = (rewards - rewards.min().item()) / (3.3 - rewards.min().item())
 
-        # to_plot = done
+            # to_plot = done
 
-        mean = to_plot[model_num].mean(1)
-        std = to_plot[model_num].std(1)
-        (mean_line,) = ax.plot(
-            noises, mean, label=model_title, color=CB_color_cycle[model_num]
-        )
-        ax.fill_between(
-            noises,
-            mean + std,
-            mean - std,
-            color=mean_line.get_color(),
-            alpha=0.3,
-        )
-    ax.set_xlabel("Uniform observation noise")
-    ax.set_ylabel("Reward")
-    ax.legend()
+            mean = to_plot[model_num].mean(1)
+            std = to_plot[model_num].std(1)
+            (mean_line,) = ax.plot(
+                noises, mean, label=model_title, color=CB_color_cycle[model_num]
+            )
+            ax.fill_between(
+                noises,
+                mean + std,
+                mean - std,
+                color=mean_line.get_color(),
+                alpha=0.3,
+            )
+        ax.set_xlabel("Uniform observation noise")
+        ax.set_ylabel("Reward")
+        ax.legend(loc="upper right", bbox_to_anchor=(0.95, 0.95))
     #
     # tikzplotlib.save(
     #     f"trial.tex",
     #     textsize=18,
     # )
+    return rewards
 
 
 if __name__ == "__main__":

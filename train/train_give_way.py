@@ -169,7 +169,7 @@ def train(
                     "min_input_norm": 0.08,
                     "box_agents": False,
                     "pos_shaping_factor": 1,
-                    "final_reward": 100,
+                    "final_reward": 0,
                     "agent_collision_penalty": 0,
                     "obstacle_collision_penalty": 0,
                     "passage_collision_penalty": 0,
