@@ -147,9 +147,11 @@ def train(
                     "dist_shaping_factor": 1,
                     "rot_shaping_factor": 0,
                     "vel_shaping_factor": 1,
-                    "energy_shaping_factor": 0.2,
-                    "wind": 0.75,
-                    "cover_angle_tolerance": 0.8,
+                    "pos_shaping_factor": 0,
+                    "energy_shaping_factor": 0,
+                    "wind_shaping_factor": 1,
+                    "wind": 2,
+                    "cover_angle_tolerance": 1,
                     "horizon": max_episode_steps,
                 },
             },
@@ -183,14 +185,14 @@ def train(
 
 if __name__ == "__main__":
     TrainingUtils.init_ray(scenario_name=scenario_name, local_mode=ON_MAC)
-    for seed in [0, 1, 2]:
+    for seed in [2]:
         train(
             seed=seed,
             restore=False,
             notes="",
             # Model important
             share_observations=True,
-            heterogeneous=False,
+            heterogeneous=True,
             # Other model
             share_action_value=True,
             centralised_critic=False,
