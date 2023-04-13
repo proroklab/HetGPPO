@@ -76,7 +76,6 @@ def evaluate_resilience(
     )
 
     for model_num, checkpoint_path in enumerate(checkpoint_paths):
-
         (
             config,
             trainer,
@@ -108,7 +107,6 @@ def evaluate_resilience(
         rewards_bef_and_after = []
 
         for inject in [False, True] if compute_also_non_injected else [True]:
-
             rewards, _, _, _ = EvaluationUtils.rollout_episodes(
                 n_episodes=n_episodes_per_model,
                 render=False,
@@ -136,7 +134,6 @@ def evaluate_resilience(
                 )
 
                 for pc in rewards_violin["bodies"]:
-
                     pc.set_facecolor(c1 if not inject else c2)
                     # pc.set_edgecolor("black")
                     pc.set_alpha(0.65)
@@ -233,7 +230,6 @@ def evaluate_increasing_noise(
     noises: np.ndarray,
     ax,
 ):
-
     rewards = np.zeros(
         (
             len(checkpoint_paths),
@@ -318,16 +314,11 @@ def evaluate_increasing_noise(
         ax.set_xlabel("Uniform observation noise")
         ax.set_ylabel("Reward")
         ax.legend(loc="upper right", bbox_to_anchor=(0.95, 0.95))
-    #
-    # tikzplotlib.save(
-    #     f"trial.tex",
-    #     textsize=18,
-    # )
+
     return rewards
 
 
 if __name__ == "__main__":
-
     for noise_delta in [0.1]:
         for agents_to_inject in [{0, 1}]:
             evaluate_resilience(

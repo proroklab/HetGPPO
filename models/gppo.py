@@ -2,7 +2,7 @@
 #  ProrokLab (https://www.proroklab.org/)
 #  All rights reserved.
 
-from typing import Any, Optional
+from typing import Optional
 
 import torch
 import torch_geometric
@@ -171,58 +171,6 @@ def batch_from_rllib_to_ptg(
         graphs = RelVel()(graphs)
 
     return graphs
-
-
-class MLP(nn.Module):
-    def __init__(
-        self,
-        in_dim: int,
-        out_dim: int,
-        n_layers: int,
-        hidden_dim: int = None,
-        activation_fn: Any = None,
-        use_norm: bool = False,
-    ):
-        assert n_layers >= 1
-        super().__init__()
-
-        if n_layers == 1:
-            assert hidden_dim is None
-        if hidden_dim is None:
-            assert n_layers == 1
-
-        if isinstance(activation_fn, str):
-            activation_fn = get_activation_fn(activation_fn)
-
-        layers = [nn.Linear(in_dim, out_dim if n_layers == 1 else hidden_dim)]
-        if activation_fn is not None:
-            layers.append(activation_fn())
-        if use_norm:
-            layers.append(nn.LayerNorm(out_dim if n_layers == 1 else hidden_dim))
-
-        if n_layers > 1:
-            for _ in range(n_layers - 2):
-                layers.append(nn.Linear(hidden_dim, hidden_dim))
-                if activation_fn is not None:
-                    layers.append(activation_fn())
-                if use_norm:
-                    layers.append(nn.LayerNorm(hidden_dim))
-
-            layers.append(nn.Linear(hidden_dim, out_dim))
-            if activation_fn is not None:
-                layers.append(activation_fn())
-            if use_norm:
-                layers.append(nn.LayerNorm(out_dim))
-
-        self._model = nn.Sequential(*layers)
-
-    def forward(self, x: Tensor) -> Tensor:
-        return self._model(x)
-
-    def reset_parameters(self):
-        for layer in self._model():
-            if hasattr(layer, "reset_parameters"):
-                layer.reset_parameters()
 
 
 class MatPosConv(MessagePassing):

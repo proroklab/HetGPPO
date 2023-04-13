@@ -1,4 +1,4 @@
-#  Copyright (c) 2022.
+#  Copyright (c) 2022-2023.
 #  ProrokLab (https://www.proroklab.org/)
 #  All rights reserved.
 
@@ -17,7 +17,6 @@ def render(
     inject_mode: InjectMode = None,
     noise_delta: float = None,
 ):
-
     config, trainer, env = EvaluationUtils.get_config_trainer_and_env_from_checkpoint(
         checkpoint_path
     )
@@ -34,6 +33,7 @@ def render(
         inject_mode=inject_mode,
         noise_delta=noise_delta,
         agents_to_inject=agents_to_inject,
+        use_pickle=False,
     )
 
     (
@@ -52,7 +52,7 @@ def render(
     save_dir = PathUtils.result_dir / f"{env_title}/{model_title}/videos"
     name = f"{model_name}_{env_name}" + ("_" + inject_name if inject else "")
     video = cv2.VideoWriter(
-        str(save_dir / f"{name}.mp4"),
+        str(f"{name}.mp4"),
         cv2.VideoWriter_fourcc(*"mp4v"),
         30,  # FPS
         (best_gif[0].shape[1], best_gif[0].shape[0]),
