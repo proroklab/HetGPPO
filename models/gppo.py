@@ -23,8 +23,8 @@ def get_activation_fn(name: Optional[str] = None):
             "swish", or "linear" (same as None)..
 
     Returns:
-        A framework-specific activtion function. e.g. tf.nn.tanh or
-            torch.nn.ReLU. None if name in ["linear", None].
+        A framework-specific activtion function. e.g.
+        torch.nn.ReLU. None if name in ["linear", None].
 
     Raises:
         ValueError: If name is an unknown activation function.
