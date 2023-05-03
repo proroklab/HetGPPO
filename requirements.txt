@@ -1,2 +1,10 @@
-ray==2.1.0
+ray[rllib]==2.1.0
 torch
+vmas
+wandb
+torch
+torch_geometric
+torch_scatter
+torch_sparse
+torch_cluster
+torch_spline_conv

@@ -17,7 +17,7 @@ ON_MAC = False
 save = PPOTrainer
 
 train_batch_size = 60000 if not ON_MAC else 200  # Jan 32768
-num_workers = 10 if not ON_MAC else 0  # jan 4
+num_workers = 1 if not ON_MAC else 0  # jan 4
 num_envs_per_worker = 60 if not ON_MAC else 1  # Jan 32
 rollout_fragment_length = (
     train_batch_size
