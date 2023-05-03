@@ -1,4 +1,4 @@
-ray[rllib]==2.1.0
+numpy==1.23.5
 torch
 vmas
 wandb
