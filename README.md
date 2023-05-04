@@ -2,8 +2,9 @@
 
 <img src="https://github.com/matteobettini/vmas-media/blob/main/hetgppo/HETGIPPO_fill.png?raw=true" alt="drawing"/>  
 
-This repository contains the code for the [Heterogeneous Multi-Agent Reinforcement Learning](https://arxiv.org/abs/2301.07137) and [System Neural Diversity: Measuring Behavioral
-Heterogeneity in Multi-Agent Learning]() papers.
+This repository contains the code for the papers:
+- [Heterogeneous Multi-Agent Reinforcement Learning](https://arxiv.org/abs/2301.07137)
+- [System Neural Diversity: Measuring Behavioral Heterogeneity in Multi-Agent Learning](https://arxiv.org/abs/2305.02128) 
 
 
 ### Cite
@@ -21,7 +22,12 @@ If you use HetGPPO in your research, **cite** it using:
 ```
 If you use SND in your research, **cite** it using:
 ```
-TBA
+@article{bettini2023snd,
+  title={System Neural Diversity: Measuring Behavioral Heterogeneity in Multi-Agent Learning},
+  author={Bettini, Matteo and Shankar, Ajay and Prorok, Amanda},
+  journal={arXiv preprint arXiv:2305.02128},
+  year={2023}
+}
 ```
 
 ### Videos
