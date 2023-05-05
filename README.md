@@ -35,7 +35,7 @@ Watch the presentation video of HetGPPO.
 
 <p align="center">
 
-[![HetGPPO Video]()]()
+[![HetGPPO Video](https://img.youtube.com/vi/J81IVQEy-zw/0.jpg)](https://www.youtube.com/watch?v=J81IVQEy-zw)
 </p>
 Watch the talk at AAMAS 2023 about HetGPPO.
 <p align="center">
