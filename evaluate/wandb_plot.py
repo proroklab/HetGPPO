@@ -11,7 +11,8 @@ def get_wandb_panel(
     project_name: str,
     groups: List[str],
     attribute_name: str = "episode_reward_mean",
-    training_iterations: int = 400,
+    x_axis_name: str = "training_iteration",
+    x_iterations: int = 400,
     filter: Dict = None,
 ):
     api = wandb.Api()
@@ -42,16 +43,15 @@ def get_wandb_panel(
 
         history = run.history(
             keys=[attribute_name],
-            samples=training_iterations,
-            x_axis="training_iteration",
+            samples=x_iterations,
+            x_axis=x_axis_name,
         )
         history = history.rename(columns={attribute_name: run.name})
         run_history_groups.append((run, history, group))
 
     unique_groups = list({str(group) for _, _, group in run_history_groups})
     unique_groups_dfs = [
-        pd.DataFrame(range(1, training_iterations - 1), columns=["training_iteration"])
-        for _ in unique_groups
+        pd.DataFrame(range(x_iterations), columns=[x_axis_name]) for _ in unique_groups
     ]
 
     for i, run_history_group in enumerate(run_history_groups):
@@ -62,13 +62,14 @@ def get_wandb_panel(
             unique_groups_dfs[group_index],
             history,
             how="outer",
-            on="training_iteration",
+            on=x_axis_name,
         )
     for i, group_df in enumerate(unique_groups_dfs):
-        temp_df = group_df.loc[:, group_df.columns.intersection(["training_iteration"])]
-        temp_df[["mean", "std"]] = group_df.drop(columns=["training_iteration"]).agg(
+        temp_df = group_df.loc[:, group_df.columns.intersection([x_axis_name])]
+        temp_df[["mean", "std"]] = group_df.drop(columns=[x_axis_name]).agg(
             ["mean", "std"], axis="columns"
         )
+        temp_df["std"].fillna(0, inplace=True)
         unique_groups_dfs[i] = temp_df
 
     return [

@@ -16,7 +16,7 @@ def plot_asym_joint(attribute, attribute_name, legend: bool = True):
         project,
         [],
         attribute_name=attribute,
-        training_iterations=training_iterations,
+        x_iterations=training_iterations,
         filter={"obs_noise": 0, "mass_position": 0.75},
     )
 
