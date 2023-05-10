@@ -28,8 +28,8 @@ def plot_asym_joint(
     tex_fonts = {
         # Use LaTeX to write all text
         "text.usetex": True,
-        "font.family": "sans-serif",
-        "font.serif": "Times New Roman",
+        "font.family": "Times New Roman",
+        # "font.serif": "Times New Roman",
         # Use 10pt font in plots, to match 10pt font in document
         "axes.labelsize": 20,
         "font.size": 20,
