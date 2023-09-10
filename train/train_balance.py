@@ -13,7 +13,7 @@ from ray.rllib.algorithms.callbacks import MultiCallbacks
 from rllib_differentiable_comms.multi_trainer import MultiPPOTrainer
 from utils import PathUtils, TrainingUtils
 
-ON_MAC = True
+ON_MAC = False
 save = PPOTrainer
 
 train_batch_size = 60_000 if not ON_MAC else 200  # Jan 32768
