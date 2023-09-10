@@ -143,8 +143,8 @@ def train(
                     "n_agents": 3
                 },
             },
-            "evaluation_interval": 0,
-            "evaluation_duration": 1,
+            "evaluation_interval": 30,
+            "evaluation_duration": 0,
             "evaluation_num_workers": 0,
             "evaluation_parallel_to_training": False,
             "evaluation_config": {
