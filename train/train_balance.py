@@ -140,15 +140,12 @@ def train(
                 "max_steps": max_episode_steps,
                 # Env specific
                 "scenario_config": {
-                    "n_agents": 4,
-                    "n_obstacles": 0,
-                    "dist_shaping_factor": 1,
-                    "collision_reward": -0.1,
+                    "n_agents": 3
                 },
             },
-            "evaluation_interval": 30,
+            "evaluation_interval": 0,
             "evaluation_duration": 1,
-            "evaluation_num_workers": 0,
+            "evaluation_num_workers": 1,
             "evaluation_parallel_to_training": False,
             "evaluation_config": {
                 "num_envs_per_worker": 1,
