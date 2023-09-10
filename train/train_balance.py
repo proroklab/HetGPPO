@@ -97,8 +97,8 @@ def train(
             "rollout_fragment_length": rollout_fragment_length,
             "sgd_minibatch_size": 4096 if not ON_MAC else 100,  # jan 2048
             "num_sgd_iter": 45,  # Jan 30
-            "num_gpus": 0.1 if not ON_MAC else 0,
-            "num_gpus_per_worker": 0.1 if not ON_MAC else 0,
+            "num_gpus":  1,
+            "num_gpus_per_worker":  0,
             "num_workers": num_workers,
             "num_envs_per_worker": num_envs_per_worker,
             "lr": 5e-5,
@@ -133,7 +133,7 @@ def train(
                 },
             },
             "env_config": {
-                "device": "cuda" if not ON_MAC else "cpu",
+                "device":  "cpu",
                 "num_envs": num_envs_per_worker,
                 "scenario_name": scenario_name,
                 "continuous_actions": continuous_actions,
