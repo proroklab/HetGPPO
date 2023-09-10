@@ -145,7 +145,7 @@ def train(
             },
             "evaluation_interval": 0,
             "evaluation_duration": 1,
-            "evaluation_num_workers": 1,
+            "evaluation_num_workers": 0,
             "evaluation_parallel_to_training": False,
             "evaluation_config": {
                 "num_envs_per_worker": 1,
