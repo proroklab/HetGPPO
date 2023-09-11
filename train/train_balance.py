@@ -6,9 +6,10 @@ import os
 import pickle
 
 from ray import tune
-from ray.air.callbacks.wandb import WandbLoggerCallback
+
 from ray.rllib.agents.ppo import PPOTrainer
 from ray.rllib.algorithms.callbacks import MultiCallbacks
+from ray.tune.integration.wandb import WandbLoggerCallback
 
 from rllib_differentiable_comms.multi_trainer import MultiPPOTrainer
 from utils import PathUtils, TrainingUtils
