@@ -45,7 +45,7 @@ class MyFullyConnectedNetwork(TorchModelV2, nn.Module):
 
         self.obs_shape = obs_space.original_space[0].shape[0]
         # Remove position
-        self.obs_shape -= self.pos_dim
+
         if self.add_agent_index:
             self.obs_shape += 1
 
@@ -97,7 +97,7 @@ class MyFullyConnectedNetwork(TorchModelV2, nn.Module):
         ).view(
             batch_size, self.n_agents, self.obs_shape
         )  # This acts like an assertion
-        obs = obs_no_pos
+        obs = obs
 
         if self.heterogeneous:
             logits = torch.stack(
