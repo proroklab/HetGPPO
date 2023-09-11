@@ -45,7 +45,6 @@ class MyFullyConnectedNetwork(TorchModelV2, nn.Module):
 
         self.obs_shape = obs_space.original_space[0].shape[0]
         # Remove position
-
         if self.add_agent_index:
             self.obs_shape += 1
 
@@ -78,26 +77,26 @@ class MyFullyConnectedNetwork(TorchModelV2, nn.Module):
                 .unsqueeze(-1)
             )
             obs = torch.cat((obs, agent_index), dim=-1)
-        pos = (
-            obs[..., self.pos_start : self.pos_start + self.pos_dim]
-            if self.pos_dim > 0
-            else None
-        )
-        vel = (
-            obs[..., self.vel_start : self.vel_start + self.vel_dim]
-            if self.vel_dim > 0
-            else None
-        )
-        obs_no_pos = torch.cat(
-            [
-                obs[..., : self.pos_start],
-                obs[..., self.pos_start + self.pos_dim :],
-            ],
-            dim=-1,
-        ).view(
-            batch_size, self.n_agents, self.obs_shape
-        )  # This acts like an assertion
-        obs = obs
+        # pos = (
+        #     obs[..., self.pos_start : self.pos_start + self.pos_dim]
+        #     if self.pos_dim > 0
+        #     else None
+        # )
+        # vel = (
+        #     obs[..., self.vel_start : self.vel_start + self.vel_dim]
+        #     if self.vel_dim > 0
+        #     else None
+        # )
+        # obs_no_pos = torch.cat(
+        #     [
+        #         obs[..., : self.pos_start],
+        #         obs[..., self.pos_start + self.pos_dim :],
+        #     ],
+        #     dim=-1,
+        # ).view(
+        #     batch_size, self.n_agents, self.obs_shape
+        # )  # This acts like an assertion
+        # obs = obs
 
         if self.heterogeneous:
             logits = torch.stack(
