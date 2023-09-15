@@ -6,28 +6,28 @@ import os
 import pickle
 
 from ray import tune
-from ray.air.callbacks.wandb import WandbLoggerCallback
+
 from ray.rllib.agents.ppo import PPOTrainer
 from ray.rllib.algorithms.callbacks import MultiCallbacks
+from ray.tune.integration.wandb import WandbLoggerCallback
 
 from rllib_differentiable_comms.multi_trainer import MultiPPOTrainer
 from utils import PathUtils, TrainingUtils
 
 ON_MAC = False
-
 save = PPOTrainer
 
-train_batch_size = 60000 if not ON_MAC else 100  # Jan 32768
-num_workers = 10 if not ON_MAC else 0  # jan 4
-num_envs_per_worker = 30 if not ON_MAC else 1  # Jan 32
+train_batch_size = 60_000 if not ON_MAC else 200  # Jan 32768
+num_workers = 1 if not ON_MAC else 0  # jan 4
+num_envs_per_worker = 600 if not ON_MAC else 1  # Jan 32
 rollout_fragment_length = (
     train_batch_size
     if ON_MAC
     else train_batch_size // (num_workers * num_envs_per_worker)
 )
 scenario_name = "sampling"
-# model_name = "MyFullyConnectedNetwork"
-model_name = "GPPO"
+model_name = "MyFullyConnectedNetwork"
+# model_name = "GPPO"
 
 
 def train(
@@ -44,9 +44,8 @@ def train(
     seed,
     notes,
     share_action_value,
-    comm_radius,
 ):
-    checkpoint_rel_path = "ray_results/joint/HetGIPPO/MultiPPOTrainer_joint_654d9_00000_0_2022-08-23_17-26-52/checkpoint_001349/checkpoint-1349"
+    checkpoint_rel_path = ""
     checkpoint_path = PathUtils.scratch_dir / checkpoint_rel_path
     params_path = checkpoint_path.parent.parent / "params.pkl"
 
@@ -73,10 +72,6 @@ def train(
     tune.run(
         trainer,
         name=group_name if model_name.startswith("GPPO") else model_name,
-        checkpoint_freq=1,
-        keep_checkpoints_num=2,
-        checkpoint_at_end=True,
-        checkpoint_score_attr="episode_reward_mean",
         callbacks=[
             WandbLoggerCallback(
                 project=f"{scenario_name}{'_test' if ON_MAC else ''}",
@@ -92,7 +87,7 @@ def train(
             "seed": seed,
             "framework": "torch",
             "env": scenario_name,
-            "kl_coeff": 0.01,
+            "kl_coeff": 0,
             "kl_target": 0.01,
             "lambda": 0.9,
             "clip_param": 0.2,  # 0.3
@@ -101,10 +96,10 @@ def train(
             "entropy_coeff": 0,  # 0.01,
             "train_batch_size": train_batch_size,
             "rollout_fragment_length": rollout_fragment_length,
-            "sgd_minibatch_size": 4096 if not ON_MAC else 2,  # jan 2048
+            "sgd_minibatch_size": 4096 if not ON_MAC else 100,  # jan 2048
             "num_sgd_iter": 45,  # Jan 30
-            "num_gpus": int(os.environ.get("RLLIB_NUM_GPUS", "0")),
-            "num_gpus_per_worker": 0,
+            "num_gpus": 0.1 if not ON_MAC else 0,
+            "num_gpus_per_worker": 0.1 if not ON_MAC else 0,
             "num_workers": num_workers,
             "num_envs_per_worker": num_envs_per_worker,
             "lr": 5e-5,
@@ -136,25 +131,28 @@ def train(
                     "vel_dim": 2,
                     "share_action_value": share_action_value,
                     "trainer": trainer_name,
-                    "comm_radius": comm_radius,
                 },
             },
             "env_config": {
-                "device": "cpu",
+                "device": "cuda" if not ON_MAC else "cpu",
                 "num_envs": num_envs_per_worker,
                 "scenario_name": scenario_name,
                 "continuous_actions": continuous_actions,
                 "max_steps": max_episode_steps,
                 # Env specific
-                "scenario_config": {"n_agents": 3, "comms_range": comm_radius},
+                "scenario_config": {
+                    "n_agents": 3,
+                    "shared_rew": False,
+                    "n_gaussians": 3,
+                },
             },
-            "evaluation_interval": 20,
+            "evaluation_interval": 30,
             "evaluation_duration": 1,
             "evaluation_num_workers": 1,
-            "evaluation_sample_timeout_s": 360,
             "evaluation_parallel_to_training": False,
             "evaluation_config": {
                 "num_envs_per_worker": 1,
+                # "explore": False,
                 "env_config": {
                     "num_envs": 1,
                 },
@@ -162,11 +160,14 @@ def train(
                     [
                         TrainingUtils.RenderingCallbacks,
                         TrainingUtils.EvaluationCallbacks,
-                        TrainingUtils.HeterogeneityMeasureCallbacks,
                     ]
                 ),
             },
-            "callbacks": MultiCallbacks([TrainingUtils.EvaluationCallbacks]),
+            "callbacks": MultiCallbacks(
+                [
+                    TrainingUtils.EvaluationCallbacks,
+                ]
+            ),
         }
         if not restore
         else config,
@@ -174,27 +175,23 @@ def train(
 
 
 if __name__ == "__main__":
-
-    radius = True
-
     TrainingUtils.init_ray(scenario_name=scenario_name, local_mode=ON_MAC)
-    for seed in [0]:
+    for seed in [0,1,2]:
         train(
             seed=seed,
             restore=False,
             notes="",
             # Model important
-            share_observations=True,
-            heterogeneous=True,
+            share_observations=False,
+            heterogeneous=False,
             # Other model
-            share_action_value=True,
+            share_action_value=False,
             centralised_critic=False,
             use_mlp=False,
             add_agent_index=False,
             aggr="add",
-            topology_type="full" if not radius else None,
-            comm_radius=-1 if not radius else 5,
+            topology_type="full",
             # Env
-            max_episode_steps=200,
+            max_episode_steps=100,
             continuous_actions=True,
         )
