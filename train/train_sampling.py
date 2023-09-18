@@ -176,7 +176,7 @@ def train(
 
 if __name__ == "__main__":
     TrainingUtils.init_ray(scenario_name=scenario_name, local_mode=ON_MAC)
-    for seed in [0,1,2]:
+    for seed in [2]:
         train(
             seed=seed,
             restore=False,
