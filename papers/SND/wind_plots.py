@@ -16,7 +16,7 @@ def plot_asym_joint(attribute, attribute_name, legend: bool = True):
         project,
         [],
         attribute_name=attribute,
-        training_iterations=training_iterations,
+        x_iterations=training_iterations,
         filter={},
     )
 
@@ -72,7 +72,6 @@ def plot_asym_joint(attribute, attribute_name, legend: bool = True):
             lw=1,
         )
     for i, (group, df) in enumerate(groups_and_dfs):
-
         iteration = df["training_iteration"].to_numpy()
         mean = df["mean"].to_numpy()[iteration < training_iterations]
         std = df["std"].to_numpy()[iteration < training_iterations]

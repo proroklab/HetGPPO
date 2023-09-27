@@ -16,7 +16,7 @@ def plot_multi_goal(attribute, attribute_name, legend: bool = True):
         project,
         ["same_goal"],
         attribute_name=attribute,
-        training_iterations=training_iterations,
+        x_iterations=training_iterations,
         filter={"n_agents": 4, "split_goals": False, "heterogeneous": True},
     )
 
@@ -55,7 +55,6 @@ def plot_multi_goal(attribute, attribute_name, legend: bool = True):
 
     groups_and_dfs = sorted(groups_and_dfs, key=lambda e: eval(e[0])["same_goal"])
     for i, (group, df) in enumerate(groups_and_dfs):
-
         mean = df["mean"].to_numpy()
         std = df["std"].to_numpy()
         iteration = df["training_iteration"].to_numpy()
@@ -108,7 +107,7 @@ def plot_multi_goal_het_hom(attribute, attribute_name, legend: bool = True):
         project,
         ["same_goal"],
         attribute_name=attribute,
-        training_iterations=training_iterations,
+        x_iterations=training_iterations,
         filter={
             "n_agents": 4,
             "same_goal": 4,
@@ -151,7 +150,6 @@ def plot_multi_goal_het_hom(attribute, attribute_name, legend: bool = True):
 
     groups_and_dfs = sorted(groups_and_dfs, key=lambda e: e[0])
     for i, (group, df) in enumerate(groups_and_dfs):
-
         mean = df["mean"].to_numpy()
         std = df["std"].to_numpy()
         iteration = df["training_iteration"].to_numpy()
