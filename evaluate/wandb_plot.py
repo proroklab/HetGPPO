@@ -27,10 +27,7 @@ def get_wandb_panel(
         skip = False
         if filter is not None:
             for item in filter.items():
-                if (
-                    item not in run.config["env_config"]["scenario_config"].items()
-                    and item not in run.config["model"]["custom_model_config"].items()
-                ):
+                if item not in run.config.items():
                     skip = True
                     break
         if skip:
