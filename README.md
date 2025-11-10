@@ -47,6 +47,8 @@ Watch the talk about HetGPPO.
 
 #### Install
 
+You will need Python 3.8
+
 Clone the repository using
 ```bash
 git clone --recursive https://github.com/proroklab/HetGPPO.git
